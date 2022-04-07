@@ -1,15 +1,7 @@
 """
-@author: Olivier Sigaud
-A merge between two sources:
-* Adaptation of the MountainCar Environment from the "FAReinforcement" library
-of Jose Antonio Martin H. (version 1.0), adapted by  'Tom Schaul, tom@idsia.ch'
-and then modified by Arnaud de Broissia
-* the gym MountainCar environment
-itself from
-http://incompleteideas.net/sutton/MountainCar/MountainCar1.cp
+http://incompleteideas.net/MountainCar/MountainCar1.cp
 permalink: https://perma.cc/6Z2N-PFWC
 """
-
 import math
 from typing import Optional
 
@@ -20,16 +12,19 @@ from gym import spaces
 from gym.utils import seeding
 
 
-class Continuous_MountainCarEnv_WithStops(gym.Env):
+class MountainCarEnvWithStops(gym.Env):
     """
     ### Description
+
     The Mountain Car MDP is a deterministic MDP that consists of a car placed stochastically
     at the bottom of a sinusoidal valley, with the only possible actions being the accelerations
     that can be applied to the car in either direction. The goal of the MDP is to strategically
     accelerate the car to reach the goal state on top of the right hill. There are two versions
     of the mountain car domain in gym: one with discrete actions and one with continuous.
-    This version is the one with continuous actions.
+    This version is the one with discrete actions.
+
     This MDP first appeared in [Andrew Moore's PhD Thesis (1990)](https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-209.pdf)
+
     ```
     @TECHREPORT{Moore90efficientmemory-based,
         author = {Andrew William Moore},
@@ -38,93 +33,120 @@ class Continuous_MountainCarEnv_WithStops(gym.Env):
         year = {1990}
     }
     ```
+
     ### Observation Space
+
     The observation is a `ndarray` with shape `(2,)` where the elements correspond to the following:
+
     | Num | Observation                                                 | Min                | Max    | Unit |
     |-----|-------------------------------------------------------------|--------------------|--------|------|
     | 0   | position of the car along the x-axis                        | -Inf               | Inf    | position (m) |
     | 1   | velocity of the car                                         | -Inf               | Inf  | position (m) |
+
     ### Action Space
-    The action is a `ndarray` with shape `(1,)`, representing the directional force applied on the car. The action is clipped in the range `[-1,1]` and multiplied by a power of 0.0015.
+
+    There are 3 discrete deterministic actions:
+
+    | Num | Observation                                                 | Value   | Unit |
+    |-----|-------------------------------------------------------------|---------|------|
+    | 0   | Accelerate to the left                                      | Inf    | position (m) |
+    | 1   | Don't accelerate                                            | Inf  | position (m) |
+    | 2   | Accelerate to the right                                     | Inf    | position (m) |
+
     ### Transition Dynamics:
+
     Given an action, the mountain car follows the following transition dynamics:
-    *velocity<sub>t+1</sub> = velocity<sub>t+1</sub> + force * self.power - 0.0025 * cos(3 * position<sub>t</sub>)*
+
+    *velocity<sub>t+1</sub> = velocity<sub>t</sub> + (action - 1) * force - cos(3 * position<sub>t</sub>) * gravity*
+
     *position<sub>t+1</sub> = position<sub>t</sub> + velocity<sub>t+1</sub>*
-    where force is the action clipped to the range `[-1,1]` and power is a constant 0.0015. The collisions at either end are inelastic with the velocity set to 0 upon collision with the wall. The position is clipped to the range [-1.2, 0.6] and velocity is clipped to the range [-0.07, 0.07].
-    ### Reward
-    A negative reward of *-0.1 * action<sup>2</sup>* is received at each timestep to penalise for taking actions of large magnitude. If the mountain car reaches the goal then a positive reward of +100 is added to the negative reward for that timestep.
+
+    where force = 0.001 and gravity = 0.0025. The collisions at either end are inelastic with the velocity set to 0 upon collision with the wall. The position is clipped to the range `[-1.2, 0.6]` and velocity is clipped to the range `[-0.07, 0.07]`.
+
+
+    ### Reward:
+
+    The goal is to reach the flag placed on top of the right hill as quickly as possible, as such the agent is penalised with a reward of -1 for each timestep it isn't at the goal and is not penalised (reward = 0) for when it reaches the goal.
+
     ### Starting State
-    The position of the car is assigned a uniform random value in `[-0.6 , -0.4]`. The starting velocity of the car is always assigned to 0.
+
+    The position of the car is assigned a uniform random value in *[-0.6 , -0.4]*. The starting velocity of the car is always assigned to 0.
+
     ### Episode Termination
+
     The episode terminates if either of the following happens:
-    1. The position of the car is greater than or equal to 0.45 (the goal position on top of the right hill)
-    2. The length of the episode is 999.
+    1. The position of the car is greater than or equal to 0.5 (the goal position on top of the right hill)
+    2. The length of the episode is 200.
+
+
     ### Arguments
+
     ```
-    gym.make('MountainCarContinuous-v0')
+    gym.make('MountainCar-v0')
     ```
+
     ### Version History
+
     * v0: Initial versions release (1.0.0)
     """
 
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
+    # metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 120}
 
-    def __init__(self, stops=[[-0.5,0.2,0.,0.02,0.], [0.525,0.15,0.035,0.07,1.]]):
+    def __init__(self,
+        stops=[
+            [ 0.525, 0.15, 0.035, 0.07, 0],
+            [-0.5,   0.2,  0.,    0.02, 100],
+        ],
+    ):
         self.min_action = -1.0
         self.max_action = 1.0
         self.min_position = -1.2
         self.max_position = 0.6
+        # self.max_position = 0.55 # TODO remove
         self.max_speed = 0.07
         self.stops = stops # [[x_center, x_width, vel_center, vel_width, reward],...]
-        self.automaton_state = 0
         self.power = 0.0015
 
-        self.low_state = np.array(
-            [self.min_position, -self.max_speed, 0], dtype=np.float32
-        )
-        self.high_state = np.array(
-            [self.max_position, self.max_speed, len(self.stops)], dtype=np.float32
-        )
+        self.force = 0.001
+        self.gravity = 0.0025
+
+        self.low = np.array([self.min_position, -self.max_speed, 0], dtype=np.float32)
+        self.high = np.array([self.max_position, self.max_speed, len(self.stops)], dtype=np.float32)
 
         self.screen = None
         self.clock = None
         self.isopen = True
 
-        self.action_space = spaces.Box(
-            low=self.min_action, high=self.max_action, shape=(1,), dtype=np.float32
-        )
-        self.observation_space = spaces.Box(
-            low=self.low_state, high=self.high_state, dtype=np.float32
-        )
+        self.action_space = spaces.Discrete(3)
+        self.observation_space = spaces.Box(self.low, self.high, dtype=np.float32)
 
     def step(self, action):
+        assert self.action_space.contains(
+            action
+        ), f"{action!r} ({type(action)}) invalid"
 
-        position = self.state[0]
-        velocity = self.state[1]
-        force = min(max(action[0], self.min_action), self.max_action)
-
-        velocity += force * self.power - 0.0025 * math.cos(3 * position)
-        if velocity > self.max_speed:
-            velocity = self.max_speed
-        if velocity < -self.max_speed:
-            velocity = -self.max_speed
+        position, velocity, automaton_state = self.state
+        automaton_state = round(automaton_state)
+        self.thrust = (action - 1) * self.force
+        velocity += self.thrust + math.cos(3 * position) * (-self.gravity)
+        velocity = np.clip(velocity, -self.max_speed, self.max_speed)
         position += velocity
-        if position > self.max_position:
-            position = self.max_position
-        if position < self.min_position:
-            position = self.min_position
-        if position == self.min_position and velocity < 0:
+        position = np.clip(position, self.min_position, self.max_position)
+        if position <= self.min_position and velocity < 0:
+            velocity = 0
+        if position >= self.max_position-0.05 and velocity > 0:
             velocity = 0
 
-        reward = 0
-        automaton_next = self.stops[self.automaton_state]
+        reward = -1
+        automaton_next = self.stops[automaton_state]
         if abs(position-automaton_next[0]) <= automaton_next[1]/2. and \
                 abs(velocity - automaton_next[2]) <= automaton_next[3] / 2:
-            reward = automaton_next[-1]
-            self.automaton_state += 1
-        done = (self.automaton_state == len(self.stops))
+            reward += automaton_next[-1]
+            automaton_state += 1
+        done = (automaton_state == len(self.stops))
 
-        self.state = np.array([position, velocity, self.automaton_state], dtype=np.float32)
+        self.state = np.array([position, velocity, automaton_state], dtype=np.float32)
         return self.state, reward, done, {}
 
     def reset(
@@ -132,10 +154,10 @@ class Continuous_MountainCarEnv_WithStops(gym.Env):
         *,
         seed: Optional[int] = None,
         return_info: bool = False,
-        options: Optional[dict] = None
+        options: Optional[dict] = None,
     ):
+        self.thrust = 0
         #super().reset(seed=seed)
-        self.automaton_state = 0
         self.state = np.array([np.random.uniform(low=-0.6, high=-0.4), 0, 0])
         if not return_info:
             return np.array(self.state, dtype=np.float32)
@@ -190,18 +212,23 @@ class Continuous_MountainCarEnv_WithStops(gym.Env):
         gfxdraw.aapolygon(self.surf, coords, (0, 0, 0))
         gfxdraw.filled_polygon(self.surf, coords, (0, 0, 0))
 
-        for c in [(carwidth / 4, 0), (-carwidth / 4, 0)]:
+        for thrust,c in [
+            (-self.thrust, (carwidth / 4, 0)),
+            (+self.thrust, (-carwidth / 4, 0)),
+        ]:
             c = pygame.math.Vector2(c).rotate_rad(math.cos(3 * pos))
             wheel = (
                 int(c[0] + (pos - self.min_position) * scale),
                 int(c[1] + clearance + self._height(pos) * scale),
             )
 
+            color = (128, 128, 128)
+            # if thrust > 0: color = (128+127*thrust/self.force, 128, 128)
             gfxdraw.aacircle(
-                self.surf, wheel[0], wheel[1], int(carheight / 2.5), (128, 128, 128)
+                self.surf, wheel[0], wheel[1], int(carheight / 2.5), color
             )
             gfxdraw.filled_circle(
-                self.surf, wheel[0], wheel[1], int(carheight / 2.5), (128, 128, 128)
+                self.surf, wheel[0], wheel[1], int(carheight / 2.5), color
             )
 
         for stop_i, stop in enumerate(self.stops):
@@ -210,7 +237,11 @@ class Continuous_MountainCarEnv_WithStops(gym.Env):
             flagy2 = flagy1 + 50
             gfxdraw.vline(self.surf, flagx, flagy1, flagy2, (0, 0, 0))
 
-            color = (255, 0, 0) if stop_i == len(self.stops)-1 else (0, 255, 0)
+            # color = (255, 0, 0) if stop_i == len(self.stops)-1 else (0, 255, 0)
+            if stop_i < round(self.state[-1]): color = (0, 255, 0)
+            elif stop_i == round(self.state[-1]): color = (255, 0, 0)
+            else: color = (127, 127, 127)
+
             gfxdraw.aapolygon(
                 self.surf,
                 [(flagx, flagy2), (flagx, flagy2 - 10), (flagx + 25, flagy2 - 5)],
@@ -235,6 +266,10 @@ class Continuous_MountainCarEnv_WithStops(gym.Env):
             )
         else:
             return self.isopen
+
+    def get_keys_to_action(self):
+        # Control with left and right arrow keys.
+        return {(): 1, (276,): 0, (275,): 2, (275, 276): 1}
 
     def close(self):
         if self.screen is not None:
