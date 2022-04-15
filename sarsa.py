@@ -64,10 +64,12 @@ class StateActionFeatureVectorWithTile():
 
 def SarsaLambda(
     env, # openai gym environment
+    X:StateActionFeatureVectorWithTile,
+    *,
+    w = None, # weight vector
     gamma:float, # discount factor
     lam:float, # decay rate
     alpha:float, # step size
-    X:StateActionFeatureVectorWithTile,
     num_episode:int,
 ) -> np.array:
     """
@@ -83,11 +85,13 @@ def SarsaLambda(
         else:
             return np.argmax(Q)
 
-    w = np.zeros(X.feature_vector_len())  # weight vector
+    if w is None: w = np.zeros(X.feature_vector_len())  # weight vector
 
-    for episode in range(num_episode):
+    for episode in range(1,num_episode+1):
+        frames = []
         print(f"episode {episode}/{num_episode}")
         s0, r, done = env.reset(), 0., False
+        if episode == num_episode: frames.append(env.render(mode="rgb_array"))
         # s0 = s0.copy(); s0[-1]=0 # ignore RM states
         a0 = epsilon_greedy_policy(s0, done, w)
         x0 = X(s0,done,a0)
@@ -96,9 +100,10 @@ def SarsaLambda(
 
         while not done:
             s1,r,done,_ = env.step(a0)
+            if episode == num_episode: frames.append(env.render(mode="rgb_array"))
             # s1 = s1.copy(); s1[-1]=0 # ignore RM states
-            # if episode > 300: env.render()
-            env.render()
+            if episode == num_episode: env.render(mode="human")
+            # env.render(fps=120)
             a1 = epsilon_greedy_policy(s1, done, w)
             x1 = X(s1,done,a1)
             Q0 = np.sum(w*x0)
@@ -109,5 +114,26 @@ def SarsaLambda(
 
             Q0_old = Q1
             s0, a0, x0 = s1, a1, x1
+        
+        if episode == num_episode:
+            save_frames_as_gif(frames)
 
     return w
+
+def save_frames_as_gif(frames, episode_num=None, filename='./gym_animation.gif', text_color=(0,0,0)):
+    # code inspired by https://stackoverflow.com/a/65970345
+    import os
+    import imageio
+    import numpy as np
+    from PIL import Image
+    import PIL.ImageDraw as ImageDraw
+    import matplotlib.pyplot as plt  
+    ims = []
+    for frame in frames:
+        im = Image.fromarray(frame)
+        drawer = ImageDraw.Draw(im)
+        # if episode_num is not None: # NOT WORKING
+        #     # drawer.text((im.size[0]/20,im.size[1]/18), f'Episode: {episode_num+1}', fill=text_color)
+        ims.append(im)
+    imageio.mimwrite(filename, frames, fps=60)
+

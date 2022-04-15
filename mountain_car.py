@@ -90,8 +90,7 @@ class MountainCarEnvWithStops(gym.Env):
     * v0: Initial versions release (1.0.0)
     """
 
-    # metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 120}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self,
         stops=[
@@ -167,9 +166,10 @@ class MountainCarEnvWithStops(gym.Env):
     def _height(self, xs):
         return np.sin(3 * xs) * 0.45 + 0.55
 
-    def render(self, mode="human"):
+    def render(self, mode="human", fps=None):
         import pygame
         from pygame import gfxdraw
+        if fps is None: fps = self.metadata["render_fps"]
 
         screen_width = 600
         screen_height = 400
@@ -257,7 +257,7 @@ class MountainCarEnvWithStops(gym.Env):
         self.screen.blit(self.surf, (0, 0))
         if mode == "human":
             pygame.event.pump()
-            self.clock.tick(self.metadata["render_fps"])
+            self.clock.tick(fps)
             pygame.display.flip()
 
         if mode == "rgb_array":
