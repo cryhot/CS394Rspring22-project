@@ -94,24 +94,37 @@ class MountainCarEnvWithStops(gym.Env):
 
     def __init__(self,
         stops=[
-            [ 0.525, 0.15, 0.035, 0.07, 0],
-            [-0.5,   0.2,  0.,    0.02, 100],
+            # (state_center, state_width, reward)
+            ([ 0.525, 0.035], [0.15, np.infty], 0),
+            ([-0.5,   0.   ], [0.2,  0.02    ], 0),
         ],
+        observable_RM=True, # include the Reward Machine state in the state
     ):
+        self.observable_RM = bool(observable_RM)
+
         self.min_action = -1.0
         self.max_action = 1.0
         self.min_position = -1.2
         self.max_position = 0.6
         # self.max_position = 0.55 # TODO remove
         self.max_speed = 0.07
-        self.stops = stops # [[x_center, x_width, vel_center, vel_width, reward],...]
+        self.stops = [
+            # in the form: ([pos_center, vel_center], [pos_width, vel_width], reward)
+            (np.asarray(goal_center), np.asarray(goal_width), goal_reward)
+            for (goal_center, goal_width, goal_reward) in stops
+        ]
         self.power = 0.0015
 
         self.force = 0.001
         self.gravity = 0.0025
 
-        self.low = np.array([self.min_position, -self.max_speed, 0], dtype=np.float32)
-        self.high = np.array([self.max_position, self.max_speed, len(self.stops)], dtype=np.float32)
+        self.RM_low = 0
+        self.RM_high = len(self.stops)
+        self.low  = np.array([self.min_position, -self.max_speed], dtype=np.float32)
+        self.high = np.array([self.max_position,  self.max_speed], dtype=np.float32)
+        if self.observable_RM:
+            self.low = np.append(self.low, self.RM_low)
+            self.high = np.append(self.high, self.RM_high)
 
         self.screen = None
         self.clock = None
@@ -119,14 +132,41 @@ class MountainCarEnvWithStops(gym.Env):
 
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(self.low, self.high, dtype=np.float32)
+    
+    @property
+    def labels(self):
+        """return the truth value for each proposition x_i: "The agent is at the i-th goal"."""
+        return np.array([
+            np.all(np.abs(self.MDP_state-goal_center) <= goal_width/2)
+            for (goal_center, goal_width, goal_reward) in self.stops
+        ], dtype=bool)
+    
+    @property
+    def state(self):
+        state = self.MDP_state
+        if self.observable_RM: state = np.append(state, self.RM_state)
+        return state
+
+    def reset(
+        self,
+        *,
+        # seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[dict] = None,
+    ):
+        #super().reset(seed=seed)
+        self.MDP_state = np.array([np.random.uniform(low=-0.6, high=-0.4), 0])
+        self.RM_state = 0
+        self.thrust = 0
+        if return_info: return np.array(self.state, dtype=np.float32), {}
+        else:           return np.array(self.state, dtype=np.float32)
 
     def step(self, action):
         assert self.action_space.contains(
             action
         ), f"{action!r} ({type(action)}) invalid"
 
-        position, velocity, automaton_state = self.state
-        automaton_state = round(automaton_state)
+        position, velocity = self.MDP_state
         self.thrust = (action - 1) * self.force
         velocity += self.thrust + math.cos(3 * position) * (-self.gravity)
         velocity = np.clip(velocity, -self.max_speed, self.max_speed)
@@ -136,32 +176,16 @@ class MountainCarEnvWithStops(gym.Env):
             velocity = 0
         if position >= self.max_position-0.05 and velocity > 0:
             velocity = 0
+        self.MDP_state = np.array([position, velocity], dtype=np.float32)
 
         reward = -1
-        automaton_next = self.stops[automaton_state]
-        if abs(position-automaton_next[0]) <= automaton_next[1]/2. and \
-                abs(velocity - automaton_next[2]) <= automaton_next[3] / 2:
-            reward += automaton_next[-1]
-            automaton_state += 1
-        done = (automaton_state == len(self.stops))
+        goal_center, goal_width, goal_reward = self.stops[self.RM_state]
+        if np.all(np.abs(self.MDP_state-goal_center) <= goal_width/2):
+            self.RM_state += 1
+            reward += goal_reward
+        done = (self.RM_state == self.RM_high)
 
-        self.state = np.array([position, velocity, automaton_state], dtype=np.float32)
         return self.state, reward, done, {}
-
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        return_info: bool = False,
-        options: Optional[dict] = None,
-    ):
-        self.thrust = 0
-        #super().reset(seed=seed)
-        self.state = np.array([np.random.uniform(low=-0.6, high=-0.4), 0, 0])
-        if not return_info:
-            return np.array(self.state, dtype=np.float32)
-        else:
-            return np.array(self.state, dtype=np.float32), {}
 
     def _height(self, xs):
         return np.sin(3 * xs) * 0.45 + 0.55
@@ -188,7 +212,7 @@ class MountainCarEnvWithStops(gym.Env):
         self.surf = pygame.Surface((screen_width, screen_height))
         self.surf.fill((255, 255, 255))
 
-        pos = self.state[0]
+        pos = self.MDP_state[0]
 
         xs = np.linspace(self.min_position, self.max_position, 100)
         ys = self._height(xs)
@@ -231,16 +255,15 @@ class MountainCarEnvWithStops(gym.Env):
                 self.surf, wheel[0], wheel[1], int(carheight / 2.5), color
             )
 
-        for stop_i, stop in enumerate(self.stops):
-            flagx = int((stop[0] - self.min_position) * scale)
-            flagy1 = int(self._height(stop[0]) * scale)
+        for goal_i, (goal_center, goal_width, goal_reward) in enumerate(self.stops):
+            flagx = int((goal_center[0] - self.min_position) * scale)
+            flagy1 = int(self._height(goal_center[0]) * scale)
             flagy2 = flagy1 + 50
             gfxdraw.vline(self.surf, flagx, flagy1, flagy2, (0, 0, 0))
 
-            # color = (255, 0, 0) if stop_i == len(self.stops)-1 else (0, 255, 0)
-            if stop_i < round(self.state[-1]): color = (0, 255, 0)
-            elif stop_i == round(self.state[-1]): color = (255, 0, 0)
-            else: color = (127, 127, 127)
+            if   goal_i <  self.RM_state: color = (  0, 255,   0) # past goals
+            elif goal_i == self.RM_state: color = (255,   0,   0) # current goal
+            else:                         color = (127, 127, 127) # future goals
 
             gfxdraw.aapolygon(
                 self.surf,
