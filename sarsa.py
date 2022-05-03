@@ -120,7 +120,83 @@ def SarsaLambda(
 
     return w
 
-def save_frames_as_gif(frames, episode_num=None, filename='./gym_animation.gif', text_color=(0,0,0)):
+
+def n_step_Sarsa(
+    env, # openai gym environment
+    X:StateActionFeatureVectorWithTile,
+    *,
+    w = None, # weight vector
+    gamma:float, # discount factor
+    n:int, # steps
+    alpha:float, # step size
+    num_episode:int=1,
+) -> np.array:
+    """
+    implement n-step semi gradient TD for estimating Q
+    """
+
+    def epsilon_greedy_policy(s,done,w,epsilon=.0):
+        nA = env.action_space.n
+        Q = [np.sum(w*X(s,done,a)) for a in range(nA)]
+
+        if np.random.rand() < epsilon:
+            return np.random.randint(nA)
+        else:
+            return np.argmax(Q)
+    
+    if w is None: w = np.zeros(X.shape)  # weight vector
+    gamma_i = np.power(gamma, np.arange(n))
+    gamma_n = np.power(gamma, n)
+
+    for episode in range(1,num_episode+1):
+        print(f"episode {episode}/{num_episode}")
+        s0, cum_R, done = env.reset(), 0., False
+        a0 = epsilon_greedy_policy(s0, done, w)
+        x0 = X(s0,done,a0)
+        Q0_old = 0
+        # env.render()
+        buff = np.empty(n, dtype=[
+            ('x',int, np.asarray(x0).shape),
+            ('r',float),
+        ])
+        buff['r'] = 0
+        F = n # buff[F:]['S] are visited states
+        B = n # buff[:B]['S] are yet to be updated
+        # if not done: B+=1
+
+        while B>0:
+            if not done:
+                s1, r, done, info = env.step(a0)
+                env.render(fps=120)
+                cum_R += r
+                # if not done: B+=1
+                a1 = epsilon_greedy_policy(s1, done, w)
+                x1 = X(s1,done,a1)
+                Q0 = np.sum(w*x0)
+                Q1 = np.sum(w*x1)
+            else:
+                r = 0
+                B -= 1
+
+            buff = np.roll(buff,-1)
+            buff[-1] = x0, r
+            F = max(F-1, 0)
+
+            if F <= 0: # if first state of the buffer is visited
+                G = np.sum(gamma_i * buff['r'])
+                # if not done: G += gamma_n * V(s1)
+                # V.update(alpha, G, buff['s'][0])
+                if not done: G += gamma_n * Q1
+                x_updt = buff['x'][0]
+                Q_updt = np.sum(w*x_updt)
+                w += alpha * (G - Q_updt) * x_updt
+
+            s0, a0, x0 = s1, a1, x1
+
+
+
+
+def save_frames_as_gif(frames, filename='./gym_animation.gif', episode_num=None, text_color=(0,0,0), fps=60):
     # code inspired by https://stackoverflow.com/a/65970345
     import os
     import imageio
@@ -132,8 +208,9 @@ def save_frames_as_gif(frames, episode_num=None, filename='./gym_animation.gif',
     for frame in frames:
         im = Image.fromarray(frame)
         drawer = ImageDraw.Draw(im)
-        # if episode_num is not None: # NOT WORKING
-        #     # drawer.text((im.size[0]/20,im.size[1]/18), f'Episode: {episode_num+1}', fill=text_color)
+        if episode_num is not None:
+            raise NotImplemented("printing episode_num is not working.")
+            # drawer.text((im.size[0]/20,im.size[1]/18), f'Episode: {episode_num+1}', fill=text_color)
         ims.append(im)
-    imageio.mimwrite(filename, frames, fps=60)
+    imageio.mimwrite(filename, frames, fps=fps)
 

@@ -3,7 +3,8 @@ import os
 import numpy as np
 import gym
 from gym.wrappers import Monitor
-from sarsa import SarsaLambda, StateActionFeatureVectorWithTile
+from sarsa import StateActionFeatureVectorWithTile
+from sarsa import SarsaLambda, n_step_Sarsa
 from mountain_car import MountainCarEnvWithStops as MountainCar
 
 def test_sarsa_lamda():
@@ -18,6 +19,7 @@ def test_sarsa_lamda():
         tile_width=np.array([.45,.035,1]),
         # tile_width=np.array([.451,.0351,1]),
         axis=range(env.observation_space.low.ndim-1),
+        # observable_RM=False,
     )
 
     # env = gym.make("MountainCar-v0")
@@ -33,7 +35,9 @@ def test_sarsa_lamda():
     w = None
     # if os.path.exists("weight_vector.npy"): w = np.load("weight_vector.npy")
     # w = SarsaLambda(env, X, gamma, lam=0.8, alpha=0.01, w=w, num_episode=1000)
-    w = SarsaLambda(env, X, gamma=gamma, lam=0.8, alpha=0.005, w=w, num_episode=100)
+
+    # w = SarsaLambda(env, X, gamma=gamma, lam=0.8, alpha=0.005, w=w, num_episode=100)
+    w = n_step_Sarsa(env, X, gamma=gamma, n=10, alpha=0.005, w=w, num_episode=100)
 
     np.save("weight_vector.npy", w)
 
