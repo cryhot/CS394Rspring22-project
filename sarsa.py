@@ -107,7 +107,8 @@ def n_step_Sarsa(
         while B>0:
             if not done:
                 s1, r, done, info = env.step(a0)
-                env.render(fps=120)
+                if episode > 10: env.render(fps=120)
+                # env.render(fps=120)
                 cum_R += r
                 # if not done: B+=1
                 a1 = epsilon_greedy_policy(s1, done)

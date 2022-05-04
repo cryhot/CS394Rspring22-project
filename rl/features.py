@@ -10,10 +10,12 @@ import functools
 __all__ = [
     'FeatureVector',
 
+    'LinearFeatureVector',
     'OneHotFeatureVector',
     'TileFeatureVector',
 
     'ProductFeatureVector',
+    'SumFeatureVector',
     'FlatFeatureVector',
 ]
 
@@ -54,6 +56,44 @@ class FeatureVector(abc.ABC):
     @property
     def flat(self):
         return FlatFeatureVector(self)
+
+
+class LinearFeatureVector(FeatureVector):
+
+    def __init__(self, A=1, b=0):
+        self.A = A
+        self.b = b
+    
+    @classmethod
+    def from_bounds(cls,
+        low:np.array,
+        high:np.array,
+    ):
+        """normalize features"""
+        low = np.asarray(low).flatten()
+        high = np.asarray(high).flat
+        A = np.diag(1/(high-low))
+        b = low/(high-low)
+        return cls(A, b)
+
+    @classmethod
+    def identity(cls,
+        shape,
+        dtype=bool,
+    ):
+        A = np.identity(np.prod(shape), dtype=dtype)
+        b = np.zeros(np.prod(shape), dtype=dtype)
+        return cls(A, b)
+
+    @property
+    def shape(self):
+        return self.b.shape
+    
+    def __getitem__(self, state):
+        x = self.A @ state.flat + self.b
+        return x
+    
+
 
 
 
@@ -168,7 +208,8 @@ class TileFeatureVector(FeatureVector):
 
 
 class ProductFeatureVector(FeatureVector):
-    """See also FeatureVector.prod
+    """Product (conjunction) of subjacent Feature vectors.
+    See also FeatureVector.prod
     Example usage:
     X = ProductFeatureVector(OneHotFeatureVector(...), TileFeatureVector(...))
     X = ProductFeatureVector([X1, X2, ...])
@@ -209,11 +250,57 @@ class ProductFeatureVector(FeatureVector):
     def __getitem__(self, state):
         if not self.Xs: return np.empty(0,dtype=bool)
         x = functools.reduce(np.multiply.outer, (X[part] for X, part in zip(self.Xs, self._iter_state(state))))
-        # for X, part in zip(self.Xs, self._iter_state(state)):
-        #     print(">", X.shape, X[part].shape)
-        # print(self.shape, x.shape)
         assert x.shape == self.shape
         return x
+
+
+
+class SumFeatureVector(FeatureVector):
+    """Concatenation of subjacent Feature vectors.
+    See also FeatureVector.sum
+    Example usage:
+    X = SumFeatureVector(OneHotFeatureVector(...), TileFeatureVector(...))
+    X = SumFeatureVector([X1, X2, ...])
+    X = SumFeatureVector((X1, X2), state_indices=(0,[1,2]))
+    """
+    def __init__(self, Xs, *more_Xs, state_indices=None):
+        """
+        Args:
+            *Xs: sequence of FeatureVector, one for each state part.
+            state_indices: Specifies how a state is decomposed in parts.
+                           If None (default), parts are state[0],...,state[-1].
+                           If it is a tuple of arrays/indices, parts are state[indices] for each indices in state_indices.
+        """
+        super().__init__()
+        if isinstance(Xs, FeatureVector): Xs = (Xs,)
+        else: Xs = tuple(Xs)
+        Xs += more_Xs
+        if state_indices is not None:
+            state_indices = tuple(state_indices)
+            assert len(state_indices) == len(Xs)
+        self.Xs = Xs
+        self.state_indices = state_indices
+    
+    def _iter_state(self, state):
+        """Return an object iterating through the state parts."""
+        if self.state_indices is None:
+            return state
+        else:
+            return (
+                state[indices]
+                for indices in self.state_indices
+            )
+
+    @property
+    def shape(self):
+        return (sum(X.size for X in self.Xs),)
+
+    def __getitem__(self, state):
+        if not self.Xs: return np.empty(0,dtype=bool)
+        x = np.concatenate([X[part].flat for X, part in zip(self.Xs, self._iter_state(state))])
+        assert x.shape == self.shape
+        return x
+    
 
 
 class FlatFeatureVector(FeatureVector):
@@ -235,4 +322,4 @@ class FlatFeatureVector(FeatureVector):
         return 1
 
     def __getitem__(self, state):
-        return self.X[state].flat
+        return self.X[state].flatten()
