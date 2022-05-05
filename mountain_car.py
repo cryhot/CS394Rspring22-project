@@ -93,27 +93,34 @@ class MountainCarEnvWithStops(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self,
+        trans_reward = -1, # reward bias at every time-step
         stops=[
             # (state_center, state_width, reward)
-            ([ 0.525, 0.035], [0.15, np.infty], 10),
-            ([-0.5,   0.   ], [0.2,  0.02    ], 100),
+            ([ 0.525, 0.035], [0.15, np.infty], 0),
+            ([-0.5,   0.   ], [0.2,  0.02    ], 0),
         ],
+        gamma = 1,
         observable_RM=True, # include the Reward Machine state in the state
         discrete_action=True, # use discrete action space
+        seed = None,
     ):
+        self.seed(seed)
         self.observable_RM = bool(observable_RM)
         self.discrete_action = discrete_action
         self.min_action = -1.0
         self.max_action = 1.0
         self.min_position = -1.2
         self.max_position = 0.6
-        # self.max_position = 0.55 # TODO remove
         self.max_speed = 0.07
+
+        self.trans_reward = trans_reward
         self.stops = [
             # in the form: ([pos_center, vel_center], [pos_width, vel_width], reward)
             (np.asarray(goal_center), np.asarray(goal_width), goal_reward)
             for (goal_center, goal_width, goal_reward) in stops
         ]
+        self.gamma = gamma
+
         self.power = 0.0015
 
         self.force = 0.001
@@ -159,6 +166,10 @@ class MountainCarEnvWithStops(gym.Env):
     @property
     def potential(self):
         return (self.gravity * (np.sin(3 * self.MDP_state[0])+1))
+    
+    def seed(self, seed=None):
+        """Reset the seed of the env"""
+        self.np_random = np.random.RandomState(seed=seed)
 
     def reset(
         self,
@@ -167,8 +178,9 @@ class MountainCarEnvWithStops(gym.Env):
         return_info: bool = False,
         options: Optional[dict] = None,
     ):
-        super().reset(seed=seed)
-        self.MDP_state = np.array([np.random.uniform(low=-.6, high=-.4), 0])
+        # super().reset(seed=seed)
+        if seed is not None: self.seed(seed)
+        self.MDP_state = np.array([self.np_random.uniform(low=-.6, high=-.4), 0])
         self.RM_state = 0
         self.thrust = 0
         if return_info: return np.array(self.state, dtype=np.float32), {}
@@ -188,15 +200,14 @@ class MountainCarEnvWithStops(gym.Env):
             velocity += force * self.power - 0.0025 * math.cos(3 * position)
         velocity = np.clip(velocity, -self.max_speed, self.max_speed)
         position += velocity
-        position = np.clip(position, self.min_position, self.max_position)
         if position <= self.min_position and velocity < 0:
             velocity = 0
-        if position >= self.max_position-0.05 and velocity > 0:
+        if position >= self.max_position and velocity > 0:
             velocity = 0
+        position = np.clip(position, self.min_position, self.max_position)
         self.MDP_state = np.array([position, velocity], dtype=np.float32)
 
-
-        reward = -.1
+        reward = self.trans_reward
         goal_center, goal_width, goal_reward = self.stops[self.RM_state]
         if np.all(np.abs(self.MDP_state-goal_center) <= goal_width/2):
             self.RM_state += 1
@@ -310,7 +321,11 @@ class MountainCarEnvWithStops(gym.Env):
 
     def get_keys_to_action(self):
         # Control with left and right arrow keys.
-        return {(): 1, (276,): 0, (275,): 2, (275, 276): 1}
+        if self.discrete_action:
+            LEFT, NOP, RIGHT = 0, 1, 2
+        else:
+            LEFT, NOP, RIGHT = -1, 0, 1
+        return {(): NOP, (276,): LEFT, (275,): RIGHT, (275, 276): NOP}
 
     def close(self):
         if self.screen is not None:
