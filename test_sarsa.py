@@ -3,22 +3,83 @@ import os
 import numpy as np
 import gym
 from gym.wrappers import Monitor
-from sarsa import SarsaLambda, StateActionFeatureVectorWithTile
+from rl.features import *
+from rl.values import *
+from rl.network import *
+from sarsa import SarsaLambda, n_step_Sarsa
 from mountain_car import MountainCarEnvWithStops as MountainCar
 
 def test_sarsa_lamda():
-    gamma = 1.
+    gamma = 1. # TODO: move in env
 
-    env = MountainCar()
-    X = StateActionFeatureVectorWithTile(
-        env.observation_space.low,
-        env.observation_space.high,
-        env.action_space.n,
-        num_tilings=10,
-        tile_width=np.array([.45,.035,1]),
-        # tile_width=np.array([.451,.0351,1]),
-        axis=range(env.observation_space.low.ndim-1),
+    # env = MountainCar(observable_RM=True)
+    # X = ProductFeatureVector(
+    #     # state features:
+    #     TileFeatureVector.uniform_offsets(
+    #         env.observation_space.low,
+    #         env.observation_space.high,
+    #         width=np.array([.45,.035,1]), # TODO: split state
+    #         num=10,
+    #     ),
+    #     # action features:
+    #     OneHotFeatureVector(
+    #         env.action_space.n,
+    #     ),
+    # )
+    # Q = ValueFunctionWithFeatureVector(X)
+
+    # env = MountainCar(observable_RM=True)
+    # X = ProductFeatureVector(
+    #     # state features:
+    #     ProductFeatureVector(
+    #         TileFeatureVector.uniform_offsets(
+    #             env.observation_space.low[:-1],
+    #             env.observation_space.high[:-1],
+    #             width=np.array([.45,.035]),
+    #             num=10,
+    #         ),
+    #         OneHotFeatureVector(
+    #             round(env.observation_space.high[-1])+1,
+    #         ),
+    #         state_indices=([0,1], 2),
+    #     ),
+    #     # action features:
+    #     OneHotFeatureVector(
+    #         env.action_space.n,
+    #     ),
+    # )
+    # Q = ValueFunctionWithFeatureVector(X)
+
+
+    env = MountainCar(observable_RM=True)
+    X = SumFeatureVector(
+        # state features:
+        SumFeatureVector(
+            LinearFeatureVector.identity(2),
+            OneHotFeatureVector(
+                round(env.observation_space.high[-1])+1,
+            ),
+            state_indices=([0,1], 2),
+        ),
+        # action features:
+        OneHotFeatureVector(
+            env.action_space.n,
+        ),
     )
+    Q = NNValueFunctionFromFeatureVector(X)
+
+
+
+    # env = MountainCar()
+    # X = StateActionFeatureVectorWithTile(
+    #     env.observation_space.low,
+    #     env.observation_space.high,
+    #     env.action_space.n,
+    #     num_tilings=10,
+    #     tile_width=np.array([.45,.035,1]),
+    #     # tile_width=np.array([.451,.0351,1]),
+    #     axis=range(env.observation_space.low.ndim-1),
+    # )
 
     # env = gym.make("MountainCar-v0")
     # X = StateActionFeatureVectorWithTile(
@@ -30,12 +91,15 @@ def test_sarsa_lamda():
     #     # tile_width=np.array([.451,.0351]),
     # )
 
-    w = None
+    
+    Q = ValueFunctionWithFeatureVector(X)
     # if os.path.exists("weight_vector.npy"): w = np.load("weight_vector.npy")
-    # w = SarsaLambda(env, X, gamma, lam=0.8, alpha=0.01, w=w, num_episode=1000)
-    w = SarsaLambda(env, X, gamma=gamma, lam=0.8, alpha=0.005, w=w, num_episode=100)
+    # SarsaLambda(env, Q, gamma=gamma, lam=0.8, alpha=0.01, episodes=1000)
 
-    np.save("weight_vector.npy", w)
+    # SarsaLambda(env, Q, gamma=gamma, lam=0.8, alpha=0.005, episodes=100)
+    n_step_Sarsa(env, Q, gamma=gamma, n=10, alpha=0.005, episodes=100)
+
+    # np.save("weight_vector.npy", w)
 
     # def greedy_policy(s,done):
     #     Q = [np.dot(w, X(s,done,a)) for a in range(env.action_space.n)]
