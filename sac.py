@@ -65,11 +65,10 @@ class CustomCallback(BaseCallback):
         """
         This event is triggered before exiting the `learn()` method.
         """
-        s_num = 3 if self.training_env.observable_RM else 2
         data = np.zeros(shape=len(self.ep_buffer), dtype=[
             ('episode', int),
-            ('s', float, (s_num,)),
-            ('a', int),
+            ('s', self.training_env.observation_space.dtype, self.training_env.observation_space.shape),
+            ('a', self.training_env.action_space.dtype,      self.training_env.action_space.shape),
             ('r', float),
             ('done', bool),
         ], )

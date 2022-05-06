@@ -9,6 +9,16 @@ from rl.network import *
 from sarsa import SarsaLambda, n_step_Sarsa
 from mountain_car import MountainCarEnvWithStops as MountainCar
 
+    
+def seed(seed=None):
+    """set the default seeds."""
+    if seed is None: return
+    import random, numpy, torch
+    random.seed(seed)
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+seed(0)
+
 def test_sarsa_lamda():
     gamma = 1. # TODO: move in env
 
