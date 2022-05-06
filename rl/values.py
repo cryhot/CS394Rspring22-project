@@ -11,6 +11,7 @@ __all__ = [
     'ValueFunction',
 
     'ValueFunctionWithFeatureVector',
+    'CompositeValueFunctionFromFeatureVector',
 ]
 
 
@@ -61,13 +62,7 @@ class ValueFunctionWithFeatureVector(ValueFunction, FeatureVector):
         return value
 
     def update(self, state, G:float, alpha:float=None):
-        """Update the value of given state (yet, update can affect the other states).
-
-        Args:
-            state: target state for updating
-            G (float): TD-target
-            alpha (float, optional): learning rate (default is self.alpha)
-        """
+        """Update the value of given state (yet, update can affect the other states)."""
         if alpha is None: alpha=self.alpha  # step size
         self.w += alpha * (G - self(state)) * self.X[state]
     
@@ -82,3 +77,45 @@ class ValueFunctionWithFeatureVector(ValueFunction, FeatureVector):
     @property
     def ndim(self): return self.X.ndim
 
+
+class CompositeValueFunctionFromFeatureVector(ValueFunction):
+    """Usefull to have several ValueFunction evaluator together (e.g., several NNs)."""
+    def __init__(self,
+        X:FeatureVector,
+        V:Callable[[np.ndarray], ValueFunction],
+    ):
+        """Has one V for each X value.
+        Args:
+            X (FeatureVector): _description_
+            V (Callable[[np.ndarray], ValueFunction]): either a ValueFunction with a copy() method, either a function x -> ValueFunction.
+        """
+        self.X = X
+        self._V_creator = V
+        self._V = dict()
+        super().__init__()
+    
+    def _new_V(self, x):
+        if isinstance(self._V_creator, ValueFunction):
+            return self._V_creator.copy()
+        if callable(self._V_creator):
+            return self._V_creator(x)
+    
+    def _get_V(self, state):
+        x = self.X[state]
+        selx = tuple(x) # makes it hashable
+        if not selx in self._V:
+            self._V[selx] = self._new_V(x)
+        V = self._V[selx]
+        return V
+
+    def __call__(self, state) -> float:
+        """Return the value of given state."""
+        V = self._get_V(state)
+        value = V(state)
+        return value
+
+    def update(self, state, G:float, alpha:float=None):
+        """Update the value of given state (yet, update can affect the other states)."""
+        V = self._get_V(state)
+        return V.update(state, G, alpha=alpha)
+        

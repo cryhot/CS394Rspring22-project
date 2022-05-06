@@ -70,7 +70,8 @@ class NNValueFunctionFromFeatureVector(ValueFunction):
         # if alpha is not None: raise NotImplementedError()
         x = self.X[state]
         x = torch.from_numpy(x).float()
-        G = torch.tensor(G).float()
+        G = torch.from_numpy(np.array([G])).float()
+        # G = torch.tensor(G).float()
 
         self.net.train()
 
