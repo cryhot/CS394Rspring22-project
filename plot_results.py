@@ -48,7 +48,6 @@ if __name__ == '__main__':
         print("mean eval eps: ", np.array(eps).mean())
 
 
-
     plt.figure()
     plt.plot(train[0][0],label="seed=")
     plt.plot(train[1][0],label="seed=")
