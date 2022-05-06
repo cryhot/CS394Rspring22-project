@@ -207,21 +207,16 @@ class TileFeatureVector(FeatureVector):
 
 
 
-class ProductFeatureVector(FeatureVector):
-    """Product (conjunction) of subjacent Feature vectors.
-    See also FeatureVector.prod
-    Example usage:
-    X = ProductFeatureVector(OneHotFeatureVector(...), TileFeatureVector(...))
-    X = ProductFeatureVector([X1, X2, ...])
-    X = ProductFeatureVector((X1, X2), state_indices=(0,[1,2]))
-    """
+class CompositeFeatureVector(FeatureVector, abc.ABC):
+    """Feature vector made of other feature vectors"""
     def __init__(self, Xs, *more_Xs, state_indices=None):
         """
         Args:
             *Xs: sequence of FeatureVector, one for each state part.
-            state_indices: Specifies how a state is decomposed in parts.
+            state_indices: Specifies how a state is decomposed in parts. There should be as many parts as subjacent feature vectors.
                            If None (default), parts are state[0],...,state[-1].
-                           If it is a tuple of arrays/indices, parts are state[indices] for each indices in state_indices.
+                           If callable, parts are state_indices(state)[0],...,state_indices(state)[-1].
+                           If it is a tuple of arrays/indices, parts are state[indices] or indices(state) for each indices in state_indices.
         """
         super().__init__()
         if isinstance(Xs, FeatureVector): Xs = (Xs,)
@@ -237,11 +232,23 @@ class ProductFeatureVector(FeatureVector):
         """Return an object iterating through the state parts."""
         if self.state_indices is None:
             return state
+        elif callable(self.state_indices):
+            return (part for part in self.state_indices(state))
         else:
             return (
+                indices(state) if callable(indices) else
                 state[indices]
                 for indices in self.state_indices
             )
+
+class ProductFeatureVector(CompositeFeatureVector):
+    """Product (conjunction) of subjacent Feature vectors.
+    See also FeatureVector.prod
+    Example usage:
+    X = ProductFeatureVector(OneHotFeatureVector(...), TileFeatureVector(...))
+    X = ProductFeatureVector([X1, X2, ...])
+    X = ProductFeatureVector((X1, X2), state_indices=(0,[1,2]))
+    """
 
     @property
     def shape(self):
@@ -255,7 +262,7 @@ class ProductFeatureVector(FeatureVector):
 
 
 
-class SumFeatureVector(FeatureVector):
+class SumFeatureVector(CompositeFeatureVector):
     """Concatenation of subjacent Feature vectors.
     See also FeatureVector.sum
     Example usage:
@@ -263,33 +270,6 @@ class SumFeatureVector(FeatureVector):
     X = SumFeatureVector([X1, X2, ...])
     X = SumFeatureVector((X1, X2), state_indices=(0,[1,2]))
     """
-    def __init__(self, Xs, *more_Xs, state_indices=None):
-        """
-        Args:
-            *Xs: sequence of FeatureVector, one for each state part.
-            state_indices: Specifies how a state is decomposed in parts.
-                           If None (default), parts are state[0],...,state[-1].
-                           If it is a tuple of arrays/indices, parts are state[indices] for each indices in state_indices.
-        """
-        super().__init__()
-        if isinstance(Xs, FeatureVector): Xs = (Xs,)
-        else: Xs = tuple(Xs)
-        Xs += more_Xs
-        if state_indices is not None:
-            state_indices = tuple(state_indices)
-            assert len(state_indices) == len(Xs)
-        self.Xs = Xs
-        self.state_indices = state_indices
-    
-    def _iter_state(self, state):
-        """Return an object iterating through the state parts."""
-        if self.state_indices is None:
-            return state
-        else:
-            return (
-                state[indices]
-                for indices in self.state_indices
-            )
 
     @property
     def shape(self):

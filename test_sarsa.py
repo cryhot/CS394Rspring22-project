@@ -9,20 +9,28 @@ from rl.network import *
 from sarsa import SarsaLambda, n_step_Sarsa
 from mountain_car import MountainCarEnvWithStops as MountainCar
 
+    
+def seed(seed=None):
+    """set the default seeds."""
+    if seed is None: return
+    import random, numpy, torch
+    random.seed(seed)
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+seed(0)
+
 def test_sarsa_lamda():
     gamma = 1. # TODO: move in env
 
     # env = MountainCar(observable_RM=True)
     # X = ProductFeatureVector(
-    #     # state features:
-    #     TileFeatureVector.uniform_offsets(
+    #     TileFeatureVector.uniform_offsets( # state features
     #         env.observation_space.low,
     #         env.observation_space.high,
-    #         width=np.array([.45,.035,1]), # TODO: split state
+    #         width=np.array([.45,.035,1]), # TODO: split MDP and RM states
     #         num=10,
     #     ),
-    #     # action features:
-    #     OneHotFeatureVector(
+    #     OneHotFeatureVector( # action features
     #         env.action_space.n,
     #     ),
     # )
@@ -30,43 +38,64 @@ def test_sarsa_lamda():
 
     # env = MountainCar(observable_RM=True)
     # X = ProductFeatureVector(
-    #     # state features:
-    #     ProductFeatureVector(
-    #         TileFeatureVector.uniform_offsets(
+    #     ProductFeatureVector( # state features
+    #         TileFeatureVector.uniform_offsets( # MDP_state
     #             env.observation_space.low[:-1],
     #             env.observation_space.high[:-1],
     #             width=np.array([.45,.035]),
     #             num=10,
     #         ),
-    #         OneHotFeatureVector(
+    #         OneHotFeatureVector( # RM_state
     #             round(env.observation_space.high[-1])+1,
     #         ),
-    #         state_indices=([0,1], 2),
+    #         state_indices=([0,1], 2,),
     #     ),
-    #     # action features:
-    #     OneHotFeatureVector(
+    #     OneHotFeatureVector( # action features
     #         env.action_space.n,
     #     ),
     # )
     # Q = ValueFunctionWithFeatureVector(X)
 
 
+    # env = MountainCar(observable_RM=True)
+    # Q = NNValueFunctionFromFeatureVector(
+    #     SumFeatureVector(
+    #         SumFeatureVector( # state features
+    #             LinearFeatureVector.identity(1), # RM_state
+    #             # OneHotFeatureVector( # RM_state
+    #             #     round(env.observation_space.high[-1])+1,
+    #             # ),
+    #             LinearFeatureVector.identity(2), # MDP_state
+    #             state_indices=(2, [0,1],),
+    #         ),
+    #         OneHotFeatureVector( # action features
+    #             env.action_space.n,
+    #         ),
+    #     )
+    # )
+
+    
     env = MountainCar(observable_RM=True)
-    X = SumFeatureVector(
-        # state features:
+    Q = CompositeValueFunctionFromFeatureVector(
         SumFeatureVector(
-            LinearFeatureVector.identity(2),
-            OneHotFeatureVector(
-                round(env.observation_space.high[-1])+1,
+            SumFeatureVector( # state features
+                LinearFeatureVector.identity(1), # RM_state
+                state_indices=(2,),
             ),
-            state_indices=([0,1], 2),
+            state_indices=(0,),
         ),
-        # action features:
-        OneHotFeatureVector(
-            env.action_space.n,
-        ),
+        lambda x: NNValueFunctionFromFeatureVector(
+            SumFeatureVector(
+                SumFeatureVector( # state features
+                    LinearFeatureVector.identity(2), # MDP_state
+                    state_indices=([0,1],),
+                ),
+                OneHotFeatureVector( # action features
+                    env.action_space.n,
+                ),
+            )
+        )
     )
-    Q = NNValueFunctionFromFeatureVector(X)
 
 
 
@@ -92,12 +121,14 @@ def test_sarsa_lamda():
     # )
 
     
-    Q = ValueFunctionWithFeatureVector(X)
+    # Q = ValueFunctionWithFeatureVector(X)
     # if os.path.exists("weight_vector.npy"): w = np.load("weight_vector.npy")
     # SarsaLambda(env, Q, gamma=gamma, lam=0.8, alpha=0.01, episodes=1000)
+    # SarsaLambda(env, Q, gamma=gamma, lam=0.8, alpha=0.1, episodes=1000)
 
-    # SarsaLambda(env, Q, gamma=gamma, lam=0.8, alpha=0.005, episodes=100)
-    n_step_Sarsa(env, Q, gamma=gamma, n=10, alpha=0.005, episodes=100)
+    # SarsaLambda(env, Q, gamma=gamma, lam=0.8, alpha=0.005, episodes=1000)
+    # n_step_Sarsa(env, Q, gamma=gamma, n=10, alpha=0.005, episodes=1000)
+    n_step_Sarsa(env, Q, gamma=gamma, n=10, alpha=3e-4, episodes=1000)
 
     # np.save("weight_vector.npy", w)
 
