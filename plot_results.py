@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 def moving_average(a, n) :
     ret = np.cumsum(a, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
+    return ret[n - 1:]
 
 if __name__ == '__main__':
     window = 50
@@ -31,9 +31,11 @@ if __name__ == '__main__':
     for t, data in enumerate(train_data):
         # Plot: Reward & number of steps per episode progression
         eps = []
+        tr = []
         for ep in np.unique(data["episode"]):
             eps.append(data[data["episode"]==ep].shape[0])
-        train.append([moving_average(data["r"],window),eps])
+            tr.append(data[data["episode"]==ep]["r"].sum())
+        train.append([moving_average(tr,5),eps])
 
     for t, data in enumerate(eval_data):
         # Plot: Reward & number of steps per episode progression

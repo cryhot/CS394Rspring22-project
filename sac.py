@@ -72,9 +72,10 @@ class CustomCallback(BaseCallback):
             ('r', float),
             ('done', bool),
         ], )
+
         data['episode'] = np.array(self.ep_buffer).ravel()
         data['s'] = np.array(self.s_buffer)
-        data['a'] = np.array(self.a_buffer).ravel()
+        data['a'] = np.array(self.a_buffer)
         data['r'] = np.array(self.r_buffer).ravel()
         data['done'] = np.array(self.done_buffer).ravel()
 
@@ -86,10 +87,11 @@ class SoftActorCritic:
     def __init__(self, env, path, total_timesteps=int(1e5), gamma=.99, seed=1):
         self.total_timesteps = total_timesteps
         self.env = env
-        self.model = SAC(SACMlpPolicy, env, gamma=gamma, learning_rate=0.0003, buffer_size=10000, learning_starts=100, train_freq=1,
-            batch_size=64, tau=0.005, ent_coef='auto', target_update_interval=1, gradient_steps=1, target_entropy='auto',
-            action_noise=None, random_exploration=0.0, verbose=0, tensorboard_log=None, _init_setup_model=True,
-            policy_kwargs=None, full_tensorboard_log=False, seed=seed, n_cpu_tf_sess=None)
+        self.model = SAC(SACMlpPolicy, env, gamma=gamma, learning_rate=0.0025, buffer_size=10000, learning_starts=1000,
+                         train_freq=1,batch_size=64, tau=0.005, ent_coef='auto', target_update_interval=1,
+                         gradient_steps=1, target_entropy='auto', action_noise=None, random_exploration=0.0,
+                         verbose=0, tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
+                         full_tensorboard_log=False, seed=seed, n_cpu_tf_sess=None)
         self.callback = CustomCallback(path=path)
 
     def train(self):
