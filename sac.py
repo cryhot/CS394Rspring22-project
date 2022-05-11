@@ -1,3 +1,4 @@
+import logging
 import gym
 import pickle
 import numpy as np
@@ -5,6 +6,8 @@ from stable_baselines import SAC
 from stable_baselines.sac.policies import MlpPolicy as SACMlpPolicy
 from stable_baselines.common.evaluation import evaluate_policy
 from stable_baselines.common.callbacks import BaseCallback
+
+from utils import RenderWrapper
 
 class CustomCallback(BaseCallback):
     """
@@ -31,6 +34,7 @@ class CustomCallback(BaseCallback):
         # # Sometimes, for event callback, it is useful
         # # to have access to the parent object
         # self.parent = None  # type: Optional[BaseCallback]
+        self.tot_i = 0
         self.s_buffer = []
         self.a_buffer = []
         self.ep_buffer = []
@@ -53,12 +57,13 @@ class CustomCallback(BaseCallback):
         #         print("ep: "+str(self.locals["num_episodes"])+" || step: "+str(self.locals["step"])+" || reward: "+str(self.locals["reward"])+" || done: "+str(self.locals["done"]))
         # else:
         #     print("ep: ? || step: "+str(self.locals["step"])+" obs: "+str(self.locals["obs"])+" || reward: "+str(self.locals["reward"])+" || done: "+str(self.locals["done"]))
-
+        if self.locals["done"]: logging.debug(f"end of episode {self.locals['num_episodes']} (tot_iter={self.tot_i})")
         self.ep_buffer.append(self.locals["num_episodes"] if self.locals["step"] > 0 else 0)
         self.s_buffer.append(self.locals["obs"])
         self.a_buffer.append(self.locals["action"])
         self.r_buffer.append(self.locals["reward"])
         self.done_buffer.append(self.locals["done"])
+        self.tot_i += 1
         return True
 
     def _on_training_end(self) -> None:
@@ -79,15 +84,18 @@ class CustomCallback(BaseCallback):
         data['r'] = np.array(self.r_buffer).ravel()
         data['done'] = np.array(self.done_buffer).ravel()
 
-        with open(self.path, 'wb') as handle:
-            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        if self.path is not None:
+            with open(self.path, 'wb') as handle:
+                pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         pass
 
 class SoftActorCritic:
-    def __init__(self, env, path, total_timesteps=int(1e5), gamma=.99, seed=1):
+    def __init__(self, env, path, total_timesteps=int(1e5), seed=1, render=False):
         self.total_timesteps = total_timesteps
         self.env = env
-        self.model = SAC(SACMlpPolicy, env, gamma=gamma, learning_rate=0.0025, buffer_size=10000, learning_starts=1000,
+        if isinstance(render, gym.Env): env = render
+        elif render: env = RenderWrapper(env)
+        self.model = SAC(SACMlpPolicy, env, gamma=env.gamma, learning_rate=0.0025, buffer_size=10000, learning_starts=1000,
                          train_freq=1,batch_size=64, tau=0.005, ent_coef='auto', target_update_interval=1,
                          gradient_steps=1, target_entropy='auto', action_noise=None, random_exploration=0.0,
                          verbose=0, tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
@@ -103,24 +111,30 @@ class SoftActorCritic:
         ep_buffer = []
         r_buffer = []
         done_buffer = []
+        tot_i=0
+        env = self.env
+        if isinstance(render, gym.Env): env = render
+        elif render: env = RenderWrapper(env)
         for ep in range(num_eps):
-            obs = self.env.reset()
+            logging.debug(f"episode {ep+1}/{num_eps} (tot_iter={tot_i})")
+            obs = env.reset()
             for t in range(num_steps):
                 action, _states = self.model.predict(obs)
-                obs, reward, done, info = self.env.step(action)
-                if render:
-                    self.env.render(fps=120)
+                obs, reward, done, info = env.step(action)
+                # if render:
+                #     env.render(fps=120)
                 if path is not None:
                     ep_buffer.append(ep)
                     s_buffer.append(obs)
                     a_buffer.append(action)
                     r_buffer.append(reward)
                     done_buffer.append(done)
+                tot_i+=1
                 if done:
                     break
 
         if path is not None:
-            s_num = 3 if self.env.observable_RM else 2
+            s_num = 3 if env.observable_RM else 2
             data = np.zeros(shape=len(ep_buffer), dtype=[
                 ('episode', int),
                 ('s', float, (s_num,)),

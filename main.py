@@ -1,45 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-
 import sys
 import argparse
-
-argparse._SubParsersAction
-
-
-# # create the top-level parser
-# parser = argparse.ArgumentParser(prog='PROG')
-# parser.add_argument('--foo', action='store_true', help='foo help')
-# # parser.set_defaults(p='-')
-# subparsers = parser.add_subparsers(help='sub-command help')
-
-# # create the parser for the "a" command
-# parser_a = subparsers.add_parser('--a', help='a help')
-# parser_a.add_argument('bar', type=int, help='bar help')
-# # parser_a.set_defaults(p='a')
-
-# # create the parser for the "b" command
-# parser_b = subparsers.add_parser('--b', help='b help')
-# parser_b.add_argument('--baz', choices='XYZ', help='baz help')
-# parser_b.set_defaults(p='b')
-
-# # parse some argument lists
-# print(subparsers.__class__)
-# # parser.parse_args(['a', '12'])
-# args = parser.parse_args()
-
-# print(args)
-# exit()
 
 
 # == helper functions ======================================================== #
 def create_parser(parser=None, name=None, **kwargs) -> argparse.ArgumentParser:
-    """Return either the existing parser, either a fresh parser or subparser."""
+    """Return either the existing parser, either a fresh parser or subparser.
+    If `help` is not explicitely given, it will be set to `description` when creating a subparser.
+    """
     if parser is None:
+        kwargs.pop('help', None)
         parser = argparse.ArgumentParser(**kwargs)
     elif isinstance(parser, argparse._SubParsersAction):
-        if 'description' in kwargs: kwargs['help'] = kwargs.pop('description')
+        if name is None: raise TypeError("must provide name when creating subparser")
+        if 'help' not in kwargs:
+            if 'description' in kwargs: kwargs['help'] = kwargs['description']
         parser = parser.add_parser(name, **kwargs)
     assert isinstance(parser, argparse.ArgumentParser)
     return parser
@@ -58,8 +34,8 @@ def create_parser_env(parser=None):
     import sys, argparse
     if parser is None:
         parser = argparse.ArgumentParser(
-            description=r"""
-                Create a MountainCar environment.
+            description="""
+                Create a Multi-task MountainCar environment.
             """,
         )
     parser.set_defaults(parser=parser)
@@ -67,20 +43,26 @@ def create_parser_env(parser=None):
 
     group_env = parser.add_argument_group(title="environment parameters")
 
-    group_env.add_argument('--RM', metavar="ID",
-        type=int, default='0',
-        help = "Preconfigured Reward machine and Stops: 0 is (R=-1, Ra=0, Rb=0), 1 is (R=-0.1, Ra=10, Rb=100)",
-        choices=range(2),
+    group_env.add_argument('--discrete-actions',
+        dest='discrete_action',
+        type=int, choices=[0,1], default=1,
+        help = "If true (default), the agent uses discrete actions, if false, it uses continuous actions.",
     )
 
     group_env.add_argument('--observable-RM',
-        dest='observable_RM', #required=True,
-        type=int, choices=[0,1],
+        dest='observable_RM',
+        type=int, choices=[0,1], default=0,
         help = "Makes the Reward Machine observable by the agent",
+    )
+    
+    group_env.add_argument('--RM', metavar="ID",
+        type=int, default='0',
+        choices=range(2),
+        help = "Preconfigured Reward machine and Stops: 0 is (R=-1, Ra=0, Rb=0), 1 is (R=-0.1, Ra=10, Rb=100)",
     )
 
     group_env.add_argument('--gamma', metavar="FLOAT",
-        type=float, default=1,
+        type=float, default="1",
         help = "discount factor",
     )
 
@@ -88,11 +70,14 @@ def create_parser_env(parser=None):
 def parse_env(args:argparse.Namespace):
     from mountain_car import MountainCarEnvWithStops as MountainCar
     from parameters import RM
+    args.observable_RM = bool(args.observable_RM)
+    args.discrete_action = bool(args.discrete_action)
     if 'RM' in args:
         RM_args = RM[args.RM]
     env = MountainCar(
         gamma=args.gamma,
         observable_RM=args.observable_RM,
+        discrete_action=args.discrete_action,
         **RM_args,
     )
     return env
@@ -102,12 +87,27 @@ def parse_env(args:argparse.Namespace):
 def create_parser_TileCoding(parser=None):
     parser = create_parser(parser,
         name='TileCoding',
-        description=r"""
+        description="""
             Q function approximator with Tile Coding.
+        """,
+        epilog="""
+            TileCoding fixed parameters are
+            tile_width = [.45,.035],
+            num_tilings = 10.
         """,
     )
     parser.set_defaults(parser=parser)
     parser.set_defaults(parse_Q=parse_TileCoding)
+
+    parser.add_argument('--save-model', metavar="PATH",
+        dest='path_model_save',
+        help="Save the weight vector as a numpy file (.npy)",
+    )
+    parser.add_argument('--load-model', metavar="PATH",
+        dest='path_model_load',
+        help="Load the weight vector and skip training",
+    )
+
     return parser
 def parse_TileCoding(args:argparse.Namespace, env, alpha):
     import numpy as np
@@ -155,12 +155,16 @@ def parse_TileCoding(args:argparse.Namespace, env, alpha):
     )
     return Q
 
-
 def create_parser_Network(parser=None):
     parser = create_parser(parser,
         name='Network',
-        description=r"""
-            Q function approximator with Tile Coding.
+        description="""
+            Q function approximator with Neural Network.
+        """,
+        epilog="""
+            Neural Network fixed parameters are
+            hidden_layers = 2
+            neurons_per_hidden_layer = 32
         """,
     )
     parser.set_defaults(parser=parser)
@@ -168,10 +172,21 @@ def create_parser_Network(parser=None):
 
     group_NN = parser.add_argument_group(title="Neural Network parameters")
 
-    group_NN.add_argument('--RMenc', metavar="ENCODING",
-        choices=['OneHot', 'Linear', 'NNs'],
-        help = "NNs: one NN per RM state; otherwise, encode RM state as inpute neuron (1 or one-hot).",
+    group_NN.add_argument('--RMenc', #metavar="ENCODING",
+        choices=['OneHot', 'Linear', 'NNs'], required=True,
+        help = "NNs: one NN per RM state; otherwise, encode RM state as input neuron(s) (1 or one-hot).",
     )
+
+    # parser.add_argument('--save-model', metavar="PATH",
+    #     dest='path_model_save',
+    #     help="Save the weight vector as a numpy file (.npy)",
+    # )
+    # parser.add_argument('--load-model', metavar="PATH",
+    #     dest='path_model_load',
+    #     help="Load the weight vector and skip training",
+    # )
+
+    return parser
 def parse_Network(args:argparse.Namespace, env, alpha):
     import numpy as np
     from rl.network import NNValueFunctionFromFeatureVector
@@ -254,7 +269,7 @@ def parse_Network(args:argparse.Namespace, env, alpha):
 def create_parser_NStepSarsa(parser=None):
     parser = create_parser(parser,
         name='NStepSarsa',
-        description=r"""
+        description="""
             Episodic n-step Semi-gradient Sarsa.
         """,
     )
@@ -275,7 +290,7 @@ def create_parser_NStepSarsa(parser=None):
     subparsers_Q = parser.add_subparsers(metavar="Q",
         title="value function approximators",
         # required=True, # not working
-        # help="Q-function approximator to use",
+        help="Q-function approximator to use",
     )
     create_parser_TileCoding(subparsers_Q)
     create_parser_Network(subparsers_Q)
@@ -287,28 +302,55 @@ def run_NStepSarsa(args:argparse.Namespace):
     env = args.parse_env(args)
     Q = args.parse_Q(args, env, args.alpha)
 
+    import numpy as np
+    import pickle
+    import logging
     from rl.algo import n_step_Sarsa, evaluate
     from rl.algo import run
     from utils import RenderWrapper
+    from parameters import set_seed
 
-    import logging
     logging.basicConfig(level=logging.DEBUG)
     rend_env = RenderWrapper(env, fps=120)
-    run(
-        n_step_Sarsa, rend_env, Q, n=args.n, alpha=args.alpha,
-        # tot_iterations=train_total_timesteps,
-        # episodes=eval_num_eps,
-        # ep_iterations=eval_num_steps,
+    if hasattr(args, 'path_model_load') and args.path_model_load is not None:
+        logging.info("LOADING TRAINED MODEL")
+        Q.w = np.load(args.path_model_load)
+    else:
+        logging.info("TRAINING")
+        if hasattr(args, 'seed'):
+            env.seed(args.seed)
+            set_seed(args.seed)
+        data = run(
+            n_step_Sarsa, (rend_env if args.train_render else env), Q,
+            n=args.n, alpha=args.alpha,
+            tot_iterations=args.train_tot_steps,
+            # episodes=args.train_num_eps,
+            # ep_iterations=args.train_num_steps,
+        )
+        if args.path_train_save is not None:
+            with open(args.path_train_save, 'wb') as f: pickle.dump(data, f)
+    if hasattr(args, 'path_model_save') and args.path_model_save is not None:
+        Q.w = np.save(args.path_model_save, Q.w)
+    logging.info("EVALUATION")
+    if hasattr(args, 'seed'):
+        env.seed(args.seed)
+        set_seed(args.seed)
+    data = run(
+        evaluate, (rend_env if args.eval_render else env), Q,
+        # tot_iterations=args.eval_tot_steps,
+        episodes=args.eval_num_eps,
+        ep_iterations=args.eval_num_steps,
     )
+    if args.path_eval_save is not None:
+        with open(args.path_eval_save, 'wb') as f: pickle.dump(data, f)
 
 def create_parser_SarsaLambda(parser=None):
     parser = create_parser(parser,
         name='SarsaLambda',
-        description=r"""
+        description="""
             True Online Sarsa(lambda).
         """,
     )
-    create_parser_env(parser)
     parser.set_defaults(parser=parser)
     parser.set_defaults(main=run_SarsaLambda)
 
@@ -337,42 +379,113 @@ def run_SarsaLambda(args:argparse.Namespace):
     env = args.parse_env(args)
     Q = args.parse_Q(args, env, args.alpha)
 
+    import numpy as np
+    import pickle
+    import logging
     from rl.algo import SarsaLambda, evaluate
     from rl.algo import run
     from utils import RenderWrapper
+    from parameters import set_seed
 
-    import logging
     logging.basicConfig(level=logging.DEBUG)
-    
     rend_env = RenderWrapper(env, fps=120)
-    run(
-        SarsaLambda, rend_env, Q, lam=args.lam, alpha=args.alpha,
-        # tot_iterations=train_total_timesteps,
-        # episodes=eval_num_eps,
-        # ep_iterations=eval_num_steps,
+    if hasattr(args, 'path_model_load') and args.path_model_load is not None:
+        logging.info("LOADING TRAINED MODEL")
+        Q.w = np.load(args.path_model_load)
+    else:
+        logging.info("TRAINING")
+        if hasattr(args, 'seed'):
+            env.seed(args.seed)
+            set_seed(args.seed)
+        data = run(
+            SarsaLambda, (rend_env if args.train_render else env), Q,
+            lam=args.lam, alpha=args.alpha,
+            tot_iterations=args.train_tot_steps,
+            # episodes=args.train_num_eps,
+            # ep_iterations=args.train_num_steps,
+        )
+        if args.path_train_save is not None:
+            with open(args.path_train_save, 'wb') as f: pickle.dump(data, f)
+    if hasattr(args, 'path_model_save') and args.path_model_save is not None:
+        Q.w = np.save(args.path_model_save, Q.w)
+    logging.info("EVALUATION")
+    if hasattr(args, 'seed'):
+        env.seed(args.seed)
+        set_seed(args.seed)
+    data = run(
+        evaluate, (rend_env if args.eval_render else env), Q,
+        # tot_iterations=args.eval_tot_steps,
+        episodes=args.eval_num_eps,
+        ep_iterations=args.eval_num_steps,
     )
-
-    return parser
+    if args.path_eval_save is not None:
+        with open(args.path_eval_save, 'wb') as f: pickle.dump(data, f)
 
 
 def create_parser_SAC(parser=None):
     parser = create_parser(parser,
         name='SAC',
-        description=r"""
-            Episodic n-step Semi-gradient Sarsa.
+        description="""
+            Soft Actor Critic.
+            Note that --discrete-actions=0 is required.
+        """,
+        epilog="""
+            SAC parameters are fixed to
+            learning_rate = 0.0025,
+            buffer_size = 10000,
+            learning_starts = 1000.
         """,
     )
-    create_parser_env(parser)
     parser.set_defaults(parser=parser)
-    parser.set_defaults(main=print_help)
+    parser.set_defaults(main=run_SAC)
+
+    parser.add_argument('--save-model', metavar="PATH",
+        dest='path_model_save',
+        help="Save the trained model (.zip)",
+    )
+    parser.add_argument('--load-model', metavar="PATH",
+        dest='path_model_load',
+        help="Load a trained model",
+    )
 
     return parser
+def run_SAC(args:argparse.Namespace):
+    env = args.parse_env(args)
+
+    from sac import SoftActorCritic as SAC
+    from utils import RenderWrapper
+
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    rend_env = RenderWrapper(env, fps=120)
+    model = SAC(
+        env=env,
+        path=args.path_train_save,
+        total_timesteps=args.train_tot_steps,
+        seed=args.seed,
+        render=rend_env if args.train_render else False,
+    )
+    if args.path_model_load is not None:
+        logging.info("LOADING TRAINED MODEL")
+        model.load(path=args.path_model_load)
+    else:
+        logging.info("TRAINING")
+        model.train()
+    if args.path_model_save is not None:
+        model.load(path=args.path_model_save)
+    logging.info("EVALUATION")
+    model.evaluate(
+        path=args.path_eval_save,
+        num_eps=args.eval_num_eps,
+        num_steps=args.eval_num_steps,
+        render=rend_env if args.eval_render else False,
+    )
 
 
 # -- main -------------------------------------------------------------------- #
 
 def create_parser_main(parser=None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = create_parser(
         # description=r"""
         #     Generates a chart.
         # """,
@@ -384,8 +497,41 @@ def create_parser_main(parser=None) -> argparse.ArgumentParser:
     )
     parser.set_defaults(parser=parser)
     parser.set_defaults(main=print_help)
-
     create_parser_env(parser)
+
+    group_train = parser.add_argument_group(title="training parameters")
+    group_train.add_argument('--seed', metavar="INT",
+        type=int, default=None,
+        help="seed for generating random numbers",
+    )
+    group_train.add_argument('--train-iterations', metavar="INT",
+        dest='train_tot_steps', type=int, default=int(1e5),
+        help="total timesteps to train on (cumulative between episodes) (default 100000)",
+    )
+    group_train.add_argument('--eval-episodes', metavar="INT",
+        dest='eval_num_eps', type=int, default=int(100),
+        help="total evaluation episodes (default 100)",
+    )
+    group_train.add_argument('--eval-iterations', metavar="INT",
+        dest='eval_num_steps', type=int, default=int(1e3),
+        help="max timesteps per evaluation episode (default 1000)",
+    )
+    group_train.add_argument('--train-render',
+        dest='train_render', action='store_true',
+        help="render the environment at 120 fps during training",
+    )
+    group_train.add_argument('--eval-render',
+        dest='eval_render', action='store_true',
+        help="render the environment at 120 fps during evaluation",
+    )
+    group_train.add_argument('--save-train', metavar="PATH",
+        dest='path_train_save',
+        help="Save the training logs as a pickle file (.pkl)",
+    )
+    group_train.add_argument('--save-eval', metavar="PATH",
+        dest='path_eval_save',
+        help="Save the evaluation logs as a pickle file (.pkl)",
+    )
     
     subparsers_algo = parser.add_subparsers(metavar="ALGO",
         title="algorithms",

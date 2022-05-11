@@ -49,7 +49,7 @@ if __name__ == '__main__':
                                       observable_RM=observable_RM,
                                       discrete_action=False,
                                       seed=seed)
-                    model = SAC(env=env, path=train_path, total_timesteps=train_total_timesteps, gamma=gamma, seed=seed)
+                    model = SAC(env=env, path=train_path, total_timesteps=train_total_timesteps, seed=seed)
                     print(filename)
                     # print("train")
                     # model.train()
