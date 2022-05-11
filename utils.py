@@ -4,6 +4,70 @@ import functools
 import itertools
 import inspect
 
+import gym
+from gym.wrappers import Monitor
+
+
+class RenderWrapper(gym.Wrapper):
+    def __init__(self, env, mode='human', **kwargs) -> None:
+        super().__init__(env)
+        self.args=(mode,)
+        self.kwargs=kwargs
+
+    def step(self, *args, **kwargs):
+        ans = self.env.step(*args, **kwargs)
+        self.env.render(*self.args, **self.kwargs)
+        return ans
+
+    def reset(self, *args, **kwargs):
+        ans = self.env.reset(*args, **kwargs)
+        self.env.render(*self.args, **self.kwargs)
+        return ans
+
+class GifWrapper(gym.Wrapper):
+    def __init__(self, env, *args, max_frame=1000, **kwargs) -> None:
+        super().__init__(env)
+        self.args=args
+        self.kwargs=kwargs
+        self.frames = []
+        self.max_frame = max_frame
+    
+    def step(self, *args, **kwargs):
+        ans = self.env.step(*args, **kwargs)
+        if len(self.frames) < self.max_frame:
+            self.frames.append(self.env.render(mode="rgb_array"))
+        return ans
+
+    def reset(self, *args, **kwargs):
+        ans = self.env.reset(*args, **kwargs)
+        # self.frames = []
+        self.frames.append(self.env.render(mode="rgb_array"))
+        return ans
+    
+    def save(self, filename, fps=60):
+        self._save_frames_as_gif(self.frames, filename, fps=fps)
+        self.frames = []
+
+    @staticmethod
+    def _save_frames_as_gif(frames, filename='./gym_animation.gif', episode_num=None, text_color=(0,0,0), fps=60):
+        # code inspired by https://stackoverflow.com/a/65970345
+        import os
+        import imageio
+        import numpy as np
+        from PIL import Image
+        import PIL.ImageDraw as ImageDraw
+        import matplotlib.pyplot as plt  
+        ims = []
+        for frame in frames:
+            im = Image.fromarray(frame)
+            drawer = ImageDraw.Draw(im)
+            if episode_num is not None:
+                raise NotImplemented("printing episode_num is not working.")
+                # drawer.text((im.size[0]/20,im.size[1]/18), f'Episode: {episode_num+1}', fill=text_color)
+            ims.append(im)
+        imageio.mimwrite(filename, frames, fps=fps)
+
+
 
 import operator
 if not hasattr(operator, '__call__'): # sys.version_info < (3,11)

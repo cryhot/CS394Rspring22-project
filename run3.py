@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
+import os, shutil
 import logging
 import numpy as np
 from typing import *
 import json
 import pickle
+import gym
+from gym.wrappers import Monitor
 
 from utils import Args, RenderWrapper, GifWrapper
 from rl.features import *
@@ -16,23 +18,26 @@ from rl.algo import *
 from mountain_car import MountainCarEnvWithStops as MountainCar
 
 
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
-    logs_dir = "logs"
+    logs_dir = "logs2"
     train_dir = os.path.join(logs_dir, "train")
     eval_dir = os.path.join(logs_dir, "eval")
     model_dir = os.path.join(logs_dir, "model")
     param_dir = os.path.join(logs_dir, "param")
+    video_dir = os.path.join(logs_dir, "video")
     os.makedirs(train_dir,exist_ok=True)
     os.makedirs(eval_dir,exist_ok=True)
     os.makedirs(model_dir,exist_ok=True)
     os.makedirs(param_dir,exist_ok=True)
+    os.makedirs(video_dir,exist_ok=True)
 
     dry_run = False
     train_total_timesteps = int(1e5)
-    eval_num_eps = 1
-    eval_num_steps = 10000
+    eval_num_eps = 100
+    eval_num_steps = 1
 
     # dry_run = True
 
@@ -41,23 +46,17 @@ if __name__ == "__main__":
     env_Args = Args(
         observable_RM = [
             True,
-            False,
+            # False,
         ],
         gamma = [
             1.0,
-            0.99,
+            # 0.99,
         ],
-        discrete_action = [True],
-    )
-    env_Args2 = Args(
-        observable_RM = [
-            True,
-            False,
-        ],
-        gamma = [1.0],
         discrete_action = [True],
     )
     from parameters import RM
+    # rm_choices = range(len(RM))
+    rm_choices = [0]
 
     def feature_Q_functions(env, alpha=None) -> Generator[Tuple[ValueFunctionWithFeatureVector,str],None,None]:
         state_features = [
@@ -203,69 +202,6 @@ if __name__ == "__main__":
         ("SarsaLambda",
             SarsaLambda,
             Args(
-                lam = [
-                    0.95,
-                    0.9,
-                    0.8,
-                    0.6,
-                ],
-                alpha = [
-                    0.2,
-                    0.1,
-                    0.05,
-                ]
-            ),
-            (lambda *args, **kwargs: itertools.chain(
-                feature_Q_functions(*args, **kwargs),
-            )),
-        ),
-        ("NStepSarsa",
-            n_step_Sarsa,
-            Args(
-                n = [
-                    # 1,
-                    # 2,
-                    4,
-                    8,
-                ],
-                alpha = [
-                    0.2,
-                    0.1,
-                    0.05,
-                ],
-            ),
-            (lambda *args, **kwargs: itertools.chain(
-                feature_Q_functions(*args, **kwargs),
-            )),
-        ),
-        ("NStepSarsa",
-            n_step_Sarsa,
-            Args(
-                n = [
-                    # 1,
-                    # 2,
-                    4,
-                    8,
-                ],
-                alpha = [
-                    0.01,
-                    0.005,
-                    0.001,
-                    0.0005,
-                    0.0001,
-                ],
-            ),
-            (lambda *args, **kwargs: itertools.chain(
-                network_Q_functions(*args, **kwargs),
-            )),
-        ),
-    ]
-
-
-    methods2 = [
-        ("SarsaLambda",
-            SarsaLambda,
-            Args(
                 lam = [0.95],
                 alpha = [0.1],
             ),
@@ -283,64 +219,43 @@ if __name__ == "__main__":
                 feature_Q_functions(*args, **kwargs),
             )),
         ),
-        ("NStepSarsa",
-            n_step_Sarsa,
-            Args(
-                n = [8],
-                alpha = [0.0001],
-            ),
-            (lambda *args, **kwargs: filter((lambda f: f[1] in ["Q=NN_RMenc=NNs_Aenc=OneHot", "Q=NN_Aenc=OneHot"]),
-                network_Q_functions(*args, **kwargs),
-            )),
-        ),
+        # ("NStepSarsa",
+        #     n_step_Sarsa,
+        #     Args(
+        #         n = [8],
+        #         alpha = [0.0001],
+        #     ),
+        #     (lambda *args, **kwargs: filter((lambda f: f[1] in ["Q=NN_RMenc=NNs_Aenc=OneHot", "Q=NN_Aenc=OneHot"]),
+        #         network_Q_functions(*args, **kwargs),
+        #     )),
+        # ),
     ]
 
-    seeds = range(1,1+3)
+    train_seeds = range(1,1+3)
     r=0
 
-
-    # for ( # first search (lot of parameters)
-    #     seed,
-    #     (algo_name, algo, algo_Args, Q_functions),
-    #     env_args,
-    #     rm_choice,
-    # ) in itertools.product(
-    #     seeds,
-    #     methods,
-    #     env_Args.product(),
-    #     range(len(RM)),
-    # ):
-    #     env = MountainCar(*env_args.args, **env_args.kwargs, **RM[rm_choice])
-    #     for algo_args in algo_Args.product():
-    #         for Q, Qfilename in Q_functions(env, alpha=algo_args.alpha): # this should be the inner loop
-
     for (
-        seed,
+        train_seed,
         (algo_name, algo, algo_Args, Q_functions),
         env_args,
         rm_choice,
     ) in itertools.product(
-        # seeds,
-        range(1,1+1000),
-        methods2,
-        env_Args2.product(),
-        [0],
+        train_seeds,
+        methods,
+        env_Args.product(),
+        rm_choices,
     ):
         env = MountainCar(*env_args.args, **env_args.kwargs, **RM[rm_choice])
         for algo_args in algo_Args.product():
             for Q, Qfilename in Q_functions(env, alpha=algo_args.alpha): # this should be the inner loop
     
-
-
-
-
                 params_json = dict(
                     algo=algo_name,
                     env_args=env_args,
                     RM=rm_choice,
                     algo_args=algo_args,
                     algo_Q=Qfilename,
-                    seed=seed,
+                    seed=train_seed,
                     train_total_timesteps=train_total_timesteps,
                 )
 
@@ -349,7 +264,7 @@ if __name__ == "__main__":
                     f"obs={env.observable_RM}_RM={rm_choice}_gamma={env.gamma}_A={['continuous','discrete'][env.discrete_action]}",
                     Qfilename,
                     *(f"{k}={v}" for k,v in algo_args.items()),
-                    f"seed={seed}",
+                    f"seed={train_seed}",
                 ])
                 train_path = os.path.join(train_dir, filename+".pkl")
                 eval_path = os.path.join(eval_dir, filename+".pkl")
@@ -358,6 +273,7 @@ if __name__ == "__main__":
                 else:
                     model_path = os.path.join(model_dir, filename+".NONE")
                 param_path = os.path.join(param_dir, filename+".json")
+                video_path = os.path.join(video_dir, filename+".gif")
                 if os.path.exists(param_path):
                     with open(param_path, 'r') as f:
                         if params_json != json.load(f):
@@ -366,16 +282,26 @@ if __name__ == "__main__":
                             assert False, "Warning! param file not coherent."
                 
                 if os.path.exists(eval_path):
-                    with open(eval_path, 'rb') as f:
-                        data = pickle.load(f)
-                        if len(data[0]) != 1000: continue
+                    # with open(eval_path, 'rb') as f:
+                    #     data = pickle.load(f)
+                    #     # if len(data[0]) != 1000: continue # 1st episode length
+                    #     if len(data) >= eval_num_steps: continue # episodes count
                     # continue # already evaluated
+                    pass
                 r+=1
                 print(f">>> #{r} {filename}")
                 if dry_run: continue
                 
 
-                if os.path.exists(model_path):
+                if not os.path.exists(model_path) and os.path.exists(model_path.replace("logs2/","logs/")):
+                    with open(param_path.replace("logs2/","logs/"), 'r') as f: data = json.load(f)
+                    if params_json == data:
+                        shutil.copy2(model_path.replace("logs2/","logs/"), model_path)
+                        shutil.copy2(train_path.replace("logs2/","logs/"), train_path)
+
+                if os.path.exists(eval_path):
+                    pass
+                elif os.path.exists(model_path):
                     print("LOAD")
                     if isinstance(Q, ValueFunctionWithFeatureVector):
                         Q.w = np.load(model_path)
@@ -383,8 +309,8 @@ if __name__ == "__main__":
                         raise NotImplementedError()
                 else:
                     print(f"TRAIN")
-                    env.seed(seed)
-                    set_seed(seed)
+                    env.seed(train_seed)
+                    set_seed(train_seed)
                     # env = RenderWrapper(env, fps=120)
                     data = run(
                         algo, env, Q, *algo_args.args, **algo_args.kwargs,
@@ -398,16 +324,29 @@ if __name__ == "__main__":
                 if isinstance(Q, ValueFunctionWithFeatureVector):
                     np.save(model_path, Q.w)
                         
+                if not os.path.exists(eval_path):
+                    print("EVAL")
+                    data = []
+                    for eval_seed in range(1,1+eval_num_eps):
+                        env.seed(eval_seed)
+                        set_seed(eval_seed)
+                        data.extend(run(
+                            evaluate, env, Q,
+                            episodes=1,
+                            ep_iterations=eval_num_steps,
+                        ))
+                    with open(eval_path, 'wb') as f:
+                        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
                 
+                print("REPLAY")
+                with open(eval_path, 'rb') as f: data = pickle.load(f)
+                eval_seed = 1
+                env.seed(eval_seed)
+                set_seed(eval_seed)
+                env.reset()
+                gifenv = GifWrapper(env, max_frame=500)
+                for step in data[0][['s','r','done']]:
+                    gifenv.step(0, replay=step)
+                gifenv.save(filename=video_path, fps=120)
 
-                print("EVAL")
-                env.seed(seed)
-                set_seed(seed)
-                data = run(
-                    evaluate, env, Q,
-                    episodes=eval_num_eps,
-                    ep_iterations=eval_num_steps,
-                )
-                with open(eval_path, 'wb') as f:
-                    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
                 print()

@@ -1,0 +1,11 @@
+numpy
+matplotlib
+tqdm
+tensorflow==1.14.0
+-f https://download.pytorch.org/whl/torch_stable.html
+torch==1.2.0+cpu
+gym==0.12.1
+
+pygame
+imageio
+stable-baselines

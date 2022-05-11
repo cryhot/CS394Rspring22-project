@@ -1,6 +1,14 @@
 
 import numpy as np
 
+def set_seed(seed=None):
+    """set the default seeds."""
+    if seed is None: return
+    import random, numpy, torch
+    random.seed(seed)
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+
 RM = [
     dict(
         trans_reward = -1,

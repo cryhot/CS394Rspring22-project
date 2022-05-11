@@ -177,16 +177,22 @@ class MountainCarEnvWithStops(gym.Env):
         seed: Optional[int] = None,
         return_info: bool = False,
         options: Optional[dict] = None,
+        replay = None
     ):
         # super().reset(seed=seed)
         if seed is not None: self.seed(seed)
         self.MDP_state = np.array([self.np_random.uniform(low=-.6, high=-.4), 0])
         self.RM_state = 0
         self.thrust = 0
+
+        if replay is not None:
+            self.MDP_state = replay[0][:2]
+            if len(replay[0])>=3: self.RM_state = round(replay[0][3])
+
         if return_info: return np.array(self.state, dtype=np.float32), {}
         else:           return np.array(self.state, dtype=np.float32)
 
-    def step(self, action):
+    def step(self, action, replay=None):
         # assert self.action_space.contains(
         #     action
         # ), f"{action!r} ({type(action)}) invalid"
@@ -212,6 +218,12 @@ class MountainCarEnvWithStops(gym.Env):
             self.RM_state += 1
             reward += goal_reward
         done = (self.RM_state == self.RM_high)
+
+        if replay is not None:
+            self.MDP_state = replay[0][:2]
+            if len(replay[0])>2: self.RM_state = round(replay[0][2])
+            reward = replay[1]
+            done = replay[2]
 
         return self.state, reward, done, {}
 

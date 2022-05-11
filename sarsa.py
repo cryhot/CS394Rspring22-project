@@ -43,8 +43,8 @@ def SarsaLambda(
             if episode == episodes[-1]: frames.append(env.render(mode="rgb_array"))
             # s1 = s1.copy(); s1[-1]=0 # ignore RM states
             if episode == episodes[-1]: env.render(mode="human")
-            if episode > 10: env.render(fps=120)
-            # env.render(fps=120)
+            # if episode > 10: env.render(fps=120)
+            env.render(fps=120)
             a1 = epsilon_greedy_policy(s1, done)
             x1 = Q[s1,a1] if not done else np.zeros(Q.shape)
             Q0 = np.sum(Q.w*x0)
@@ -93,6 +93,7 @@ def n_step_Sarsa(
     for episode in episodes:
         print(f"episode {episode}/{episodes[-1]}")
         s0, cum_R, done = env.reset(), 0., False
+        # env.MDP_state[0]=0.6 ##########""
         a0 = epsilon_greedy_policy(s0, done)
         # env.render()
         buff = np.empty(n, dtype=[
@@ -107,8 +108,8 @@ def n_step_Sarsa(
         while B>0:
             if not done:
                 s1, r, done, info = env.step(a0)
-                if episode > 10: env.render(fps=120)
-                # env.render(fps=120)
+                # if episode > 10: env.render(fps=120)
+                env.render(fps=120)
                 cum_R += r
                 # if not done: B+=1
                 a1 = epsilon_greedy_policy(s1, done)

@@ -1,7 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import itertools
+import logging
 import numpy as np
+
+
+
+def run(algo, env, *args,
+    tot_iterations=np.infty,
+    ep_iterations=np.infty,
+    episodes=np.infty,
+    **kwargs,
+):
+    "Run an algo"
+    tot_i = 0
+    logs = []
+    for e in itertools.count():
+        if e >= episodes: return logs
+        logging.debug(
+            f"episode {e+1}"
+            + (f"/{episodes}" if episodes<np.infty else "")
+            + f" (tot_iter={tot_i}"
+            + (f"/{tot_iterations}" if tot_iterations<np.infty else "")
+            + ")"
+        )
+        logs_ep = []
+        for ep_i,(s,a,r,done) in enumerate(algo(env, *args, **kwargs)):
+            if tot_i >= tot_iterations:
+                episodes = -1
+                break
+            if ep_i >= ep_iterations: break
+            logs_ep.append((e,s,a,r,done))
+            tot_i += 1
+        logs_ep = np.array(logs_ep, dtype=[
+            ('episode', int),
+            ('s', env.observation_space.dtype, env.observation_space.shape),
+            ('a', env.action_space.dtype, env.action_space.shape),
+            ('r', float),
+            ('done', bool),
+        ])
+        logs.append(logs_ep)
 
 
 

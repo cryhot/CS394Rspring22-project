@@ -160,7 +160,7 @@ cython_debug/
 
 *.zip
 
-logs/
+logs*/
 
 *.png
 
