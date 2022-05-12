@@ -330,7 +330,7 @@ def run_NStepSarsa(args:argparse.Namespace):
         if args.path_train_save is not None:
             with open(args.path_train_save, 'wb') as f: pickle.dump(data, f)
     if hasattr(args, 'path_model_save') and args.path_model_save is not None:
-        Q.w = np.save(args.path_model_save, Q.w)
+        np.save(args.path_model_save, Q.w)
     logging.info("EVALUATION")
     if hasattr(args, 'seed'):
         env.seed(args.seed)
@@ -407,7 +407,7 @@ def run_SarsaLambda(args:argparse.Namespace):
         if args.path_train_save is not None:
             with open(args.path_train_save, 'wb') as f: pickle.dump(data, f)
     if hasattr(args, 'path_model_save') and args.path_model_save is not None:
-        Q.w = np.save(args.path_model_save, Q.w)
+        np.save(args.path_model_save, Q.w)
     logging.info("EVALUATION")
     if hasattr(args, 'seed'):
         env.seed(args.seed)

@@ -238,6 +238,11 @@ Example of runs (optimal parameters presented in the project report):
 ```
 Use `--obs=0` (shortcut for `--observable-RM=0`) to test non observable Reward Machines. Set `--seed` to reproduce the results.
 
+<!-- Already trained models can be found in `models/`, for methods that support `--save-model`. -->
+Certain methods allow to save a model after training, using `--save-model`. 
+One can load these models for evaluation, instead of training a new model, with the argument `--load-model`.
+When loading a model, other arguments should be the same as the one used to save the model, in particular the environment definition (`--discrete-actions`, `--observable-RM`).
+
 ## Other files
 
 `test_DRL.py` (for SAC) and `run*.py` (for Sarsa algorithms) were used for grid search.
