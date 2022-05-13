@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import sys
+from typing import *
 import itertools
 import logging
 import numpy as np
+import termcolor
 
 
 
@@ -41,6 +44,68 @@ def run(algo, env, *args,
             ('done', bool),
         ])
         logs.append(logs_ep)
+
+
+
+def learn_RM(alphabet,
+    sample:Tuple['pos_sample','neg_sample'],
+    pos_runs=[], neg_runs=[], # the infered DFA must comply with these, but we do enlarge the sample only when necessary.
+    *,
+    start_N=1, stop_N=np.inf, # formla size
+) -> 'dfa':
+    "Learns a Reward Machine efficiently. Modifies the sample inplace."
+    from automata_learning_utils.pysat.sat_data_file import read_RPNI_samples, extract_samples_from_traces
+    from automata_learning_utils.pysat.sat_data_file import sat_data_file
+    from automata_learning_utils.pysat.problem import Problem
+    pos_sample, neg_sample = sample
+    N = start_N
+    logging.debug(termcolor.colored(f">>> trying to solve DFA with {N} states.", color='blue', attrs=['bold']))
+    while True:
+        if N > stop_N: break
+        problem = Problem(N, alphabet)
+        # print(len(pos_sample),len(neg_sample))
+        # for p in pos_sample: print('+',''.join(str(l) for l in p))
+        # for n in neg_sample: print('-',''.join(str(l) for l in n))
+        problem.add_positive_traces(pos_sample)
+        problem.add_negative_traces(neg_sample)
+        wcnf = problem.build_cnf()
+        success = problem.solve()
+        if not success:
+            N+=1
+            logging.debug(termcolor.colored(f">>> trying to solve DFA with {N} states.", color='blue', attrs=['bold']))
+            continue
+        dfa = problem.get_automaton()
+        # if any(x==y for x in sample[0] for y in sample[1]): print("HHHHHHH")
+        if update_sample(dfa, sample, pos_runs, neg_runs):
+            logging.debug(termcolor.colored(f"... trying again.", color='blue', attrs=['bold']))
+            continue
+        logging.debug(termcolor.colored(f">>> found!", color='blue', attrs=['bold']))
+        return dfa
+    return None
+
+def update_sample(dfa,
+    sample:Tuple['pos_sample','neg_sample'],
+    pos_runs=[], neg_runs=[],
+):
+    "If the sample is updated, returns False. Else, returns True. Modifies the sample inplace."
+    pos_sample, neg_sample = sample
+    for sub_run in itertools.chain(pos_runs, neg_runs): # we suppose that prefixes are negative runs
+        for i in range(len(sub_run)):
+            if sub_run[:i] in dfa:
+                neg_sample.append(sub_run[:i])
+                # logging.debug(termcolor.colored(f">>> bim 1!", color='red', attrs=['bold']))
+                return True
+    for pos_run in pos_runs:
+        if pos_run not in dfa:
+            pos_sample.append(pos_run)
+            # logging.debug(termcolor.colored(f">>> bim 2!", color='red', attrs=['bold']))
+            return True
+    for neg_run in neg_runs:
+        if neg_run in dfa:
+            neg_sample.append(neg_run)
+            # logging.debug(termcolor.colored(f">>> bim 3!", color='red', attrs=['bold']))
+            return True
+    return False
 
 
 

@@ -51,8 +51,8 @@ def create_parser_env(parser=None):
 
     group_env.add_argument('--observable-RM',
         dest='observable_RM',
-        type=int, choices=[0,1], default=0,
-        help = "Makes the Reward Machine observable by the agent",
+        type=int, choices=[0,1,2], default=0,
+        help = "Makes the Reward Machine observable by the agent (0: no, 1: yes (given), 2: infer RM)",
     )
     
     group_env.add_argument('--RM', metavar="ID",
@@ -70,7 +70,7 @@ def create_parser_env(parser=None):
 def parse_env(args:argparse.Namespace):
     from mountain_car import MountainCarEnvWithStops as MountainCar
     from parameters import RM
-    args.observable_RM = bool(args.observable_RM)
+    # args.observable_RM = bool(args.observable_RM)
     args.discrete_action = bool(args.discrete_action)
     if 'RM' in args:
         RM_args = RM[args.RM]
@@ -131,7 +131,7 @@ def parse_TileCoding(args:argparse.Namespace, env, alpha):
     if env.observable_RM:
         state_features.extend([
             OneHotFeatureVector( # RM_state
-                round(env.observation_space.high[-1])+1,
+                len(env.RM_learned.states),
             ),
         ])
         state_indices.extend([
@@ -203,7 +203,7 @@ def parse_Network(args:argparse.Namespace, env, alpha):
                 SumFeatureVector(
                     SumFeatureVector( # state features
                         OneHotFeatureVector( # RM_state
-                            round(env.observation_space.high[-1])+1,
+                            len(env.RM_learned.states),
                         ),
                         LinearFeatureVector.identity(2), # MDP_state
                         state_indices=(2, [0,1],),
@@ -300,18 +300,20 @@ def run_NStepSarsa(args:argparse.Namespace):
     if not hasattr(args, 'parse_Q'):
         args.parser.error('the value function approximator Q is required')
     env = args.parse_env(args)
-    Q = args.parse_Q(args, env, args.alpha)
 
     import numpy as np
     import pickle
     import logging
     from rl.algo import n_step_Sarsa, evaluate
     from rl.algo import run
+    from rl.algo import learn_RM, update_sample
     from utils import RenderWrapper
     from parameters import set_seed
 
+    Q = args.parse_Q(args, env, args.alpha)
     logging.basicConfig(level=logging.DEBUG)
     rend_env = RenderWrapper(env, fps=120)
+
     if hasattr(args, 'path_model_load') and args.path_model_load is not None:
         logging.info("LOADING TRAINED MODEL")
         Q.w = np.load(args.path_model_load)
@@ -320,17 +322,47 @@ def run_NStepSarsa(args:argparse.Namespace):
         if hasattr(args, 'seed'):
             env.seed(args.seed)
             set_seed(args.seed)
-        data = run(
-            n_step_Sarsa, (rend_env if args.train_render else env), Q,
-            n=args.n, alpha=args.alpha,
-            tot_iterations=args.train_tot_steps,
-            # episodes=args.train_num_eps,
-            # ep_iterations=args.train_num_steps,
-        )
+        data = []
+        if env.observable_RM==2: # use RM_learned
+            all_pos_runs, all_neg_runs = [], []
+            sample = ([], [])
+            env.RM_learned = learn_RM(env.RM_learned.alphabet, sample, pos_runs=all_pos_runs, neg_runs=all_neg_runs) # "empty" RM
+            env.RM_learned.export_as_visualization_dot(
+                output_file="learned.dot",
+                keep_states=True, keep_alphabet=True,
+                group_separator=r';',
+            )
+            Q = args.parse_Q(args, env, args.alpha) # reset Q
+        while True:
+            remaining_iterations = args.train_tot_steps - sum(len(ep) for ep in data)
+            if remaining_iterations <= 0: break
+            d = run(
+                n_step_Sarsa, (rend_env if args.train_render else env), Q,
+                n=args.n, alpha=args.alpha,
+                tot_iterations=args.train_tot_steps,
+                # episodes=args.train_num_eps,
+                # ep_iterations=args.train_num_steps,
+            )
+            data.extend(d)
+            if env.observable_RM==2: # use RM_learned
+                pos_runs, neg_runs = [], []
+                d_run = [env.lbl_of(s['s']) for s in d[0]]
+                d_run.append(env.lbl) # fix last element that got truncated
+                (pos_runs if d[0][-1]['done'] else neg_runs).append(d_run)
+                all_pos_runs.extend(pos_runs); all_neg_runs.extend(neg_runs)
+                if update_sample(env.RM_learned, sample, pos_runs=pos_runs, neg_runs=neg_runs): # check if new counterexamples
+                    env.RM_learned = learn_RM(env.RM_learned.alphabet, sample, pos_runs=all_pos_runs, neg_runs=all_neg_runs, start_N=len(env.RM_learned.states)) # relearn RM
+                    env.RM_learned.export_as_visualization_dot(
+                        output_file="learned.dot",
+                        keep_states=True, keep_alphabet=True,
+                        group_separator=r';',
+                    )
+                    Q = args.parse_Q(args, env, args.alpha) # reset Q
         if args.path_train_save is not None:
             with open(args.path_train_save, 'wb') as f: pickle.dump(data, f)
     if hasattr(args, 'path_model_save') and args.path_model_save is not None:
         np.save(args.path_model_save, Q.w)
+    
     logging.info("EVALUATION")
     if hasattr(args, 'seed'):
         env.seed(args.seed)
@@ -377,18 +409,20 @@ def run_SarsaLambda(args:argparse.Namespace):
     if not hasattr(args, 'parse_Q'):
         args.parser.error('the value function approximator Q is required')
     env = args.parse_env(args)
-    Q = args.parse_Q(args, env, args.alpha)
 
     import numpy as np
     import pickle
     import logging
     from rl.algo import SarsaLambda, evaluate
     from rl.algo import run
+    from rl.algo import learn_RM, update_sample
     from utils import RenderWrapper
     from parameters import set_seed
 
+    Q = args.parse_Q(args, env, args.alpha)
     logging.basicConfig(level=logging.DEBUG)
     rend_env = RenderWrapper(env, fps=120)
+
     if hasattr(args, 'path_model_load') and args.path_model_load is not None:
         logging.info("LOADING TRAINED MODEL")
         Q.w = np.load(args.path_model_load)
@@ -397,17 +431,47 @@ def run_SarsaLambda(args:argparse.Namespace):
         if hasattr(args, 'seed'):
             env.seed(args.seed)
             set_seed(args.seed)
-        data = run(
-            SarsaLambda, (rend_env if args.train_render else env), Q,
-            lam=args.lam, alpha=args.alpha,
-            tot_iterations=args.train_tot_steps,
-            # episodes=args.train_num_eps,
-            # ep_iterations=args.train_num_steps,
-        )
+        data = []
+        if env.observable_RM==2: # use RM_learned
+            all_pos_runs, all_neg_runs = [], []
+            sample = ([], [])
+            env.RM_learned = learn_RM(env.RM_learned.alphabet, sample, pos_runs=all_pos_runs, neg_runs=all_neg_runs) # "empty" RM
+            env.RM_learned.export_as_visualization_dot(
+                output_file="learned.dot",
+                keep_states=True, keep_alphabet=True,
+                group_separator=r';',
+            )
+            Q = args.parse_Q(args, env, args.alpha) # reset Q
+        while True:
+            remaining_iterations = args.train_tot_steps - sum(len(ep) for ep in data)
+            if remaining_iterations <= 0: break
+            d = run(
+                SarsaLambda, (rend_env if args.train_render else env), Q,
+                lam=args.lam, alpha=args.alpha,
+                tot_iterations=remaining_iterations,
+                episodes=1, # LEARN RM EVERY EPISODE
+                # ep_iterations=args.train_num_steps,
+            )
+            data.extend(d)
+            if env.observable_RM==2: # use RM_learned
+                pos_runs, neg_runs = [], []
+                d_run = [env.lbl_of(s['s']) for s in d[0]]
+                d_run.append(env.lbl) # fix last element that got truncated
+                (pos_runs if d[0][-1]['done'] else neg_runs).append(d_run)
+                all_pos_runs.extend(pos_runs); all_neg_runs.extend(neg_runs)
+                if update_sample(env.RM_learned, sample, pos_runs=pos_runs, neg_runs=neg_runs): # check if new counterexamples
+                    env.RM_learned = learn_RM(env.RM_learned.alphabet, sample, pos_runs=all_pos_runs, neg_runs=all_neg_runs, start_N=len(env.RM_learned.states)) # relearn RM
+                    env.RM_learned.export_as_visualization_dot(
+                        output_file="learned.dot",
+                        keep_states=True, keep_alphabet=True,
+                        group_separator=r';',
+                    )
+                    Q = args.parse_Q(args, env, args.alpha) # reset Q
         if args.path_train_save is not None:
             with open(args.path_train_save, 'wb') as f: pickle.dump(data, f)
     if hasattr(args, 'path_model_save') and args.path_model_save is not None:
         np.save(args.path_model_save, Q.w)
+    
     logging.info("EVALUATION")
     if hasattr(args, 'seed'):
         env.seed(args.seed)
@@ -540,7 +604,7 @@ def create_parser_main(parser=None) -> argparse.ArgumentParser:
     )
     create_parser_NStepSarsa(subparsers_algo)
     create_parser_SarsaLambda(subparsers_algo)
-    create_parser_SAC(subparsers_algo)
+    # create_parser_SAC(subparsers_algo)
     return parser
 
 

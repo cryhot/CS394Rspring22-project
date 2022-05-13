@@ -1,8 +1,10 @@
 
 # Using Reward Machines to Solve Long Horizon Planning Tasks via Reinforcement Learning
 
-> This is the [course project](https://www.cs.utexas.edu/~pstone/Courses/394Rspring22/assignments/project.html) for _[CS394R](https://www.cs.utexas.edu/~pstone/Courses/394Rspring22/): Reinforcement Learning: Theory and Practice_ -- Spring 2022
+> This is the course project for _ASE389: Verification and Synthesis for Cyberphysical Systems_ -- Spring 2022
 
+The specificity of this branch is the Reward Machine inference (`--obs=2`).
+This codes uses parts of https://github.com/u-t-autonomous/JIRP-AdvisoRL (for automata inference).
 
 
 ## Installing
@@ -20,8 +22,11 @@ The following apt-get packages might be necessary:
 
 For a quick demo, run:
 ```sh
-./main.py --eval-render --seed=2 --train-iter=100000 --obs=1 --RM=0 --gamma=1 NStepSarsa --n=8 --alpha=0.05 TileCoding
+./main.py --eval-render --seed=2 --train-iter=100000 --obs=2 --RM=0 --gamma=1 SarsaLambda --lambda=0.95 --alpha=0.1 TileCoding
 ```
+Also, the learned reward machine is updated in real time in `learned.dot`
+(it is recommended to monitor it with a software such a `xdot`).
+
 ![modified Mountain Car](images/NStepSarsa.gif)
 
 Help messages are available:
@@ -31,7 +36,7 @@ Help messages are available:
 <p>
 
 ```
-usage: main.py [-h] [--discrete-actions {0,1}] [--observable-RM {0,1}]
+usage: main.py [-h] [--discrete-actions {0,1}] [--observable-RM {0,1,2}]
                [--RM ID] [--gamma FLOAT] [--seed INT] [--train-iterations INT]
                [--eval-episodes INT] [--eval-iterations INT] [--train-render]
                [--eval-render] [--save-train PATH] [--save-eval PATH]
@@ -44,8 +49,9 @@ environment parameters:
   --discrete-actions {0,1}
                         If true (default), the agent uses discrete actions, if
                         false, it uses continuous actions.
-  --observable-RM {0,1}
-                        Makes the Reward Machine observable by the agent
+  --observable-RM {0,1,2}
+                        Makes the Reward Machine observable by the agent (0:
+                        no, 1: yes (given), 2: infer RM)
   --RM ID               Preconfigured Reward machine and Stops: 0 is (R=-1,
                         Ra=0, Rb=0), 1 is (R=-0.1, Ra=10, Rb=100)
   --gamma FLOAT         discount factor
@@ -67,8 +73,6 @@ algorithms:
   ALGO                  algorithm to use
     NStepSarsa          Episodic n-step Semi-gradient Sarsa.
     SarsaLambda         True Online Sarsa(lambda).
-    SAC                 Soft Actor Critic. Note that --discrete-actions=0 is
-                        required.
 ```
 
 `--RM=0` corresponds to the Reward Machine:
@@ -206,26 +210,6 @@ Neural Network fixed parameters are hidden_layers = 2 neurons_per_hidden_layer
 </p>
 </details>
 <!----------------------------------------------------------------------------->
-<details>
-<summary><code>./main.py SAC --help</code></summary>
-<p>
-
-```
-usage: main.py SAC [-h] [--save-model PATH] [--load-model PATH]
-
-Soft Actor Critic. Note that --discrete-actions=0 is required.
-
-optional arguments:
-  -h, --help         show this help message and exit
-  --save-model PATH  Save the trained model (.zip)
-  --load-model PATH  Load a trained model
-
-SAC parameters are fixed to learning_rate = 0.0025, buffer_size = 10000,
-learning_starts = 1000.
-```
-</p>
-</details>
-<!----------------------------------------------------------------------------->
 
 
 Example of runs (optimal parameters presented in the project report):
@@ -234,7 +218,6 @@ Example of runs (optimal parameters presented in the project report):
 ./main.py --eval-render --obs=1 --RM=0 --gamma=1 NStepSarsa --n=8 --alpha=0.05 TileCoding
 ./main.py --eval-render --obs=1 --RM=0 --gamma=1 NStepSarsa --n=8 --alpha=0.0001 Network --RMenc=NNs
 ./main.py --eval-render --obs=1 --RM=0 --gamma=1 SarsaLambda --lambda=0.95 --alpha=0.1 TileCoding
-./main.py --eval-render --obs=1 --RM=1 --gamma=1 --discrete-action=0 --train-iter=250000 SAC
 ```
 Use `--obs=0` (shortcut for `--observable-RM=0`) to test non observable Reward Machines. Set `--seed` to reproduce the results.
 

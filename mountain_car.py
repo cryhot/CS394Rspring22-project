@@ -2,6 +2,7 @@
 http://incompleteideas.net/MountainCar/MountainCar1.cp
 permalink: https://perma.cc/6Z2N-PFWC
 """
+import logging
 import math
 from typing import Optional
 
@@ -10,6 +11,8 @@ import numpy as np
 import gym
 from gym import spaces
 from gym.utils import seeding
+
+from automata_learning_utils.pysat.dfa import DFA
 
 
 class MountainCarEnvWithStops(gym.Env):
@@ -105,7 +108,7 @@ class MountainCarEnvWithStops(gym.Env):
         seed = None,
     ):
         self.seed(seed)
-        self.observable_RM = bool(observable_RM)
+        self.observable_RM = observable_RM
         self.discrete_action = discrete_action
         self.min_action = -1.0
         self.max_action = 1.0
@@ -113,26 +116,45 @@ class MountainCarEnvWithStops(gym.Env):
         self.max_position = 0.6
         self.max_speed = 0.07
 
-        self.trans_reward = trans_reward
+        
         self.stops = [
-            # in the form: ([pos_center, vel_center], [pos_width, vel_width], reward)
-            (np.asarray(goal_center), np.asarray(goal_width), goal_reward)
+            # in the form: ([pos_center, vel_center], [pos_width, vel_width])
+            (np.asarray(goal_center), np.asarray(goal_width))
             for (goal_center, goal_width, goal_reward) in stops
         ]
         self.gamma = gamma
+        self.RM = DFA(
+            alphabet = range(len(self.stops)+1),
+            states = range(len(self.stops)+1),
+            init_states = [0],
+            accepting_states = [len(self.stops)],
+        )
+        self.RM.transitions = {
+            (s,l): s
+            for s in self.RM.states
+            for l in self.RM.alphabet
+        }
+        self.RM.rewards = {
+            (s,l): trans_reward
+            for s in self.RM.states
+            for l in self.RM.alphabet
+        }
+        for i,(goal_center, goal_width, goal_reward) in enumerate(stops):
+            l = i+1
+            self.RM.transitions[i,l] = i+1
+            self.RM.rewards[i,l] += goal_reward
+        self.RM_learned = self.RM
 
         self.power = 0.0015
 
         self.force = 0.001
         self.gravity = 0.0025
 
-        self.RM_low = 0
-        self.RM_high = len(self.stops)
         self.low  = np.array([self.min_position, -self.max_speed], dtype=np.float32)
         self.high = np.array([self.max_position,  self.max_speed], dtype=np.float32)
         if self.observable_RM:
-            self.low = np.append(self.low, self.RM_low)
-            self.high = np.append(self.high, self.RM_high)
+            self.low  = np.append(self.low,  min(self.RM.states))
+            self.high = np.append(self.high, max(self.RM.states))
         self.screen = None
         self.clock = None
         self.isopen = True
@@ -145,18 +167,31 @@ class MountainCarEnvWithStops(gym.Env):
             )
         self.observation_space = spaces.Box(self.low, self.high, dtype=np.float32)
     
+    def labels_of(self, state):
+        return np.array([
+            np.all(np.abs(state[:2]-goal_center) <= goal_width/2)
+            for (goal_center, goal_width) in self.stops
+        ], dtype=bool)
+    
+    def lbl_of(self, state):
+        "return an integer labal"
+        l, = np.where(self.labels_of(state))
+        if len(l) > 1: logging.warn(f"{len(l)} goals are reached in the same state!")
+        l = l[0]+1 if len(l) else 0 # assuming the goals are distinct
+        return l
+
     @property
     def labels(self):
         """return the truth value for each proposition x_i: "The agent is at the i-th goal"."""
-        return np.array([
-            np.all(np.abs(self.MDP_state-goal_center) <= goal_width/2)
-            for (goal_center, goal_width, goal_reward) in self.stops
-        ], dtype=bool)
+        return self.labels_of(self.MDP_state)
+    
+    @property
+    def lbl(self): return self.lbl_of(self.MDP_state)
     
     @property
     def state(self):
         state = self.MDP_state
-        if self.observable_RM: state = np.append(state, self.RM_state)
+        if self.observable_RM: state = np.append(state, self.RM_learned_state)
         return state
 
     @property
@@ -182,7 +217,8 @@ class MountainCarEnvWithStops(gym.Env):
         # super().reset(seed=seed)
         if seed is not None: self.seed(seed)
         self.MDP_state = np.array([self.np_random.uniform(low=-.6, high=-.4), 0])
-        self.RM_state = 0
+        self.RM_state = self.RM.init_states[0]
+        self.RM_learned_state = self.RM_learned.init_states[0]
         self.thrust = 0
 
         if replay is not None:
@@ -212,12 +248,11 @@ class MountainCarEnvWithStops(gym.Env):
         position = np.clip(position, self.min_position, self.max_position)
         self.MDP_state = np.array([position, velocity], dtype=np.float32)
 
-        reward = self.trans_reward
-        goal_center, goal_width, goal_reward = self.stops[self.RM_state]
-        if np.all(np.abs(self.MDP_state-goal_center) <= goal_width/2):
-            self.RM_state += 1
-            reward += goal_reward
-        done = (self.RM_state == self.RM_high)
+        l = self.lbl
+        reward = self.RM.rewards[self.RM_state,l]
+        self.RM_state = self.RM.transitions[self.RM_state,l]
+        self.RM_learned_state = self.RM_learned.transitions[self.RM_learned_state,l]
+        done = self.RM_state in self.RM.accepting_states
 
         if replay is not None:
             self.MDP_state = replay[0][:2]
@@ -295,7 +330,7 @@ class MountainCarEnvWithStops(gym.Env):
                 self.surf, wheel[0], wheel[1], int(carheight / 2.5), color
             )
 
-        for goal_i, (goal_center, goal_width, goal_reward) in enumerate(self.stops):
+        for goal_i, (goal_center, goal_width) in enumerate(self.stops):
             flagx = int((goal_center[0] - self.min_position) * scale)
             flagy1 = int(self._height(goal_center[0]) * scale)
             flagy2 = flagy1 + 50

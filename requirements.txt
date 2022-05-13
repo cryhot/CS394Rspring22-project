@@ -9,3 +9,5 @@ gym==0.12.1
 pygame
 imageio
 stable-baselines
+
+python-sat
